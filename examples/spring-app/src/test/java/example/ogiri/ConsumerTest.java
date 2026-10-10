@@ -18,7 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
         "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
         "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
         "spring.datasource.hikari.maximum-pool-size=1",
-        "demo.password=test-password"
+        "spring.profiles.active=demo"
 })
 class ConsumerTest {
     @Value("${local.server.port}") private int port;
@@ -37,11 +37,11 @@ class ConsumerTest {
         assertTrue(login.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
         String bearer = login.headers().firstValue("Authorization").orElseThrow();
         assertFalse(login.body().contains(bearer.substring(7)), "Response JSON must not contain the credential");
-        UUID id = sessions.list(new Subject("users", "", "demo")).get(0).id();
+        UUID id = sessions.list(new Subject("users", "", "demo@example.com")).get(0).id();
         assertEquals(200, request("GET", "/me", null, bearer).statusCode());
         assertEquals(200, request("GET", "/auth/sessions", null, bearer).statusCode());
         assertEquals(403, request("GET", "/admin", null, bearer).statusCode());
-        var foreign = sessions.issue(new Subject("users", "another-tenant", "demo"), "foreign");
+        var foreign = sessions.issue(new Subject("users", "another-tenant", "demo@example.com"), "foreign");
         assertEquals(404, request("DELETE", "/auth/sessions/" + foreign.session().id(), null, bearer).statusCode());
         assertTrue(sessions.authenticate(foreign.token()).isPresent());
         assertEquals(204, request("DELETE", "/auth/sessions/" + id, null, bearer).statusCode());
@@ -54,16 +54,16 @@ class ConsumerTest {
         assertEquals(403, request("POST", "/auth/sign-in", "application/json", null).statusCode());
         var invalid = request("GET", "/me", null, "Bearer og1_" + "A".repeat(43));
         assertEquals(401, invalid.statusCode());
-        var issued = sessions.issue(new Subject("users", "", "demo"), "phone");
+        var issued = sessions.issue(new Subject("users", "", "demo@example.com"), "phone");
         assertEquals(401, request("GET", "/me?access_token=" + issued.token(), null, null).statusCode());
         var duplicate = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/me"))
                 .header("Authorization", "Bearer " + issued.token()).header("Authorization", "Bearer " + issued.token()).GET().build();
         assertEquals(400, HTTP.send(duplicate, HttpResponse.BodyHandlers.ofString()).statusCode());
-        assertEquals(1, sessions.list(new Subject("users", "", "demo")).size());
+        assertEquals(1, sessions.list(new Subject("users", "", "demo@example.com")).size());
     }
 
     @Test void signOutAndRevokeAllUseOnlyTheAuthenticatedOwner() throws Exception {
-        var owner = new Subject("users", "", "demo");
+        var owner = new Subject("users", "", "demo@example.com");
         var first = sessions.issue(owner, "one");
         var second = sessions.issue(owner, "two");
         assertEquals(204, request("DELETE", "/auth/sign-out", null, "Bearer " + first.token()).statusCode());
@@ -73,7 +73,7 @@ class ConsumerTest {
         assertTrue(sessions.list(owner).isEmpty());
     }
 
-    private HttpResponse<String> login(String password) throws Exception { return login("demo", password); }
+    private HttpResponse<String> login(String password) throws Exception { return login("demo@example.com", password); }
 
     private HttpResponse<String> login(String username, String password) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/auth/sign-in"))

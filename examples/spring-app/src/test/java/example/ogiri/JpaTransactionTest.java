@@ -19,7 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
         "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
         "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
         "spring.datasource.hikari.maximum-pool-size=3", "spring.jpa.open-in-view=false",
-        "demo.password=test-password"
+        "spring.profiles.active=demo"
 })
 class JpaTransactionTest {
     @Autowired JdbcSessions sessions;

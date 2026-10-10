@@ -15,7 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
         "spring.datasource.url=${OGIRI_TEST_JDBC_URL}",
         "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
         "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
-        "demo.password=test-password",
+        "spring.profiles.active=demo",
         "server.servlet.context-path=/app",
         "spring.mvc.servlet.path=/api",
         "ogiri.base-path=/login"
@@ -26,7 +26,7 @@ class ServletPathConsumerTest {
     @Test void prefixedSignInIsReachableButSimplePostsRemainCsrfProtected() throws Exception {
         var uri = URI.create("http://localhost:" + port + "/app/api/login/sign-in");
         var payload = HttpRequest.BodyPublishers.ofString(
-                "{\"username\":\"demo\",\"password\":\"test-password\",\"client\":\"browser\"}");
+                "{\"username\":\"demo@example.com\",\"password\":\"test-password\",\"client\":\"browser\"}");
         var allowed = HttpRequest.newBuilder(uri).header("Content-Type", "application/json")
                 .header("X-Requested-With", "Ogiri").POST(payload).build();
         var simple = HttpRequest.newBuilder(uri).header("Content-Type", "application/json")

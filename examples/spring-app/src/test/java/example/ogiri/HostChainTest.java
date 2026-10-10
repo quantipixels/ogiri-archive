@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.*;
 
 @SpringBootTest(classes = {Application.class, HostChainTest.Host.class}, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=${OGIRI_TEST_JDBC_URL}", "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
-        "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}", "demo.password=test-password",
+        "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}", "spring.profiles.active=demo",
         "ogiri.endpoints-enabled=false"
 })
 class HostChainTest {

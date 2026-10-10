@@ -17,7 +17,9 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.*;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -59,8 +61,13 @@ public final class OgiriAutoConfiguration {
         return new JdbcSessions(source, policy, manager);
     }
 
+    /** Spring's delegating encoder; unprefixed hashes such as Devise's {@code $2a$...} are verified as bcrypt. */
     @Bean @ConditionalOnMissingBean
-    PasswordEncoder ogiriPasswordEncoder() { return PasswordEncoderFactories.createDelegatingPasswordEncoder(); }
+    PasswordEncoder ogiriPasswordEncoder() {
+        var encoder = (DelegatingPasswordEncoder) PasswordEncoderFactories.createDelegatingPasswordEncoder();
+        encoder.setDefaultPasswordEncoderForMatches(new BCryptPasswordEncoder());
+        return encoder;
+    }
 
     @Bean @ConditionalOnMissingBean @ConditionalOnBean(UserDetailsService.class)
     OgiriAccounts ogiriAccounts(UserDetailsService users, OgiriProperties properties) {
