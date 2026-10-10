@@ -2,7 +2,7 @@
 
 Status: ready (revision 2.1, 2026-10-10). Every Ogiri library (Spring Boot, FastAPI, Phoenix) implements this contract. It follows DeviseTokenAuth (DTA) at commit `b02076a` with Devise at `05811fb`, so existing DTA frontends keep working when a Rails backend is replaced. Deliberate differences are listed in [Differences from DTA](#differences-from-dta). The executable form is [`conformance/`](conformance): a library conforms when that suite passes against its sample application.
 
-Each behaviour has an id (for example `S3`) that tickets, tests and reviews cite. Examples are normative unless marked *illustrative*.
+Each behaviour has an id (for example `S3`) that tickets, tests and reviews cite. Examples are normative unless marked *illustrative*. Lengths are counted in Unicode code points.
 
 ## 1. Terms
 
