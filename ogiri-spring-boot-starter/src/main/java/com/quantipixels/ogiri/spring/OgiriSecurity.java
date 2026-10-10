@@ -4,6 +4,9 @@ package com.quantipixels.ogiri.spring;
 
 
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -12,6 +15,9 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.server.resource.BearerTokenErrors;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.DefaultCsrfToken;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
 /** Reusable native resource-server configuration; safe to use with multiple application-owned chains. */
@@ -67,7 +73,14 @@ public final class OgiriSecurity {
                     if (properties.endpointsEnabled()) routes.requestMatchers(signInRequest()).permitAll();
                     routes.anyRequest().authenticated();
                 })
-                .csrf(csrf -> csrf.ignoringRequestMatchers(signInRequest()))
+                .csrf(csrf -> csrf.csrfTokenRepository(new CsrfTokenRepository() {
+                    // The stateless chain must reject unsafe requests without persisting a CSRF token.
+                    @Override public CsrfToken generateToken(HttpServletRequest request) {
+                        return new DefaultCsrfToken("X-CSRF-TOKEN", "_csrf", UUID.randomUUID().toString());
+                    }
+                    @Override public void saveToken(CsrfToken token, HttpServletRequest request, HttpServletResponse response) {}
+                    @Override public CsrfToken loadToken(HttpServletRequest request) { return null; }
+                }).ignoringRequestMatchers(signInRequest()))
                 .build();
     }
 }

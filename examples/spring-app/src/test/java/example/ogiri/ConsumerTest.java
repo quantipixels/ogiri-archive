@@ -50,8 +50,12 @@ class ConsumerTest {
 
     @Test void invalidLoginSimpleCrossSitePostsAndAmbiguousBearerTransportAreRejected() throws Exception {
         assertEquals(401, login("wrong-password").statusCode());
-        assertEquals(403, request("POST", "/auth/sign-in", "text/plain", null).statusCode());
-        assertEquals(403, request("POST", "/auth/sign-in", "application/json", null).statusCode());
+        for (String contentType : new String[] {"text/plain", "application/json"}) {
+            var rejected = request("POST", "/auth/sign-in", contentType, null);
+            assertEquals(403, rejected.statusCode());
+            assertTrue(rejected.headers().allValues("Set-Cookie").isEmpty(), "Rejected sign-in must not start a cookie session");
+        }
+        assertEquals(403, request("DELETE", "/auth/sessions", null, null).statusCode());
         var invalid = request("GET", "/me", null, "Bearer og1_" + "A".repeat(43));
         assertEquals(401, invalid.statusCode());
         var issued = sessions.issue(new Subject("users", "", "demo@example.com"), "phone");
