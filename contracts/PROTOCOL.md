@@ -1,6 +1,6 @@
 # Ogiri protocol, version 2: DeviseTokenAuth parity
 
-Status: ready (revision 2.0, 2026-10-10). Every Ogiri library (Spring Boot, FastAPI, Phoenix) implements this contract. It follows DeviseTokenAuth (DTA) at commit `b02076a` with Devise at `05811fb`, so existing DTA frontends keep working when a Rails backend is replaced. Deliberate differences are listed in [Differences from DTA](#differences-from-dta). The executable form is [`conformance/`](conformance): a library conforms when that suite passes against its sample application.
+Status: ready (revision 2.1, 2026-10-10). Every Ogiri library (Spring Boot, FastAPI, Phoenix) implements this contract. It follows DeviseTokenAuth (DTA) at commit `b02076a` with Devise at `05811fb`, so existing DTA frontends keep working when a Rails backend is replaced. Deliberate differences are listed in [Differences from DTA](#differences-from-dta). The executable form is [`conformance/`](conformance): a library conforms when that suite passes against its sample application.
 
 Each behaviour has an id (for example `S3`) that tickets, tests and reviews cite. Examples are normative unless marked *illustrative*.
 
@@ -15,7 +15,7 @@ Each behaviour has an id (for example `S3`) that tickets, tests and reviews cite
 
 ## 2. Credentials (H)
 
-- **H1 Token format.** `access-token` is 32 bytes from a cryptographically secure generator, encoded as unpadded base64url (43 characters). `client` is 16 random bytes, unpadded base64url (22 characters). Storage keeps only `SHA-256(access-token)`; the raw token is never stored or logged.
+- **H1 Token format.** `access-token` is 32 bytes from a cryptographically secure generator, encoded as unpadded base64url (43 characters). `client` is 16 random bytes, unpadded base64url (22 characters); a request `client` longer than 64 characters never authenticates. Storage keeps only `SHA-256(access-token)`; the raw token is never stored or logged.
 - **H2 Request sources.** A request authenticates from, in order of precedence per field: the `access-token`, `client` and `uid` request headers; then `Authorization: Bearer <base64 of a JSON object with those three keys>` (standard base64, last whitespace-separated word, malformed → ignored). Query-string, form-body and cookie values are ignored (cookies only under §8 K1). A missing `client` means `default` (DTA).
 - **H3 Validity.** A request is authenticated only if an account with that `uid` exists and is active (§9), and a live session for that account has that `client` and that access token. Expired sessions never authenticate; expiry is fixed, not sliding. All three values are compared; a token alone, or a matching token with another account's `uid`, fails. Lookup time must not reveal whether a `uid` exists.
 - **H4 Response headers.** Every authenticated response, and every response that issues a token, carries `access-token`, `client`, `uid`, `expiry` (Unix seconds, decimal string), `token-type: Bearer`, and `Authorization: Bearer <base64 JSON of those five>`. Responses also carry `Cache-Control: no-store`. Browser clients read them only if CORS exposes them; each library offers a one-line way to expose them.
@@ -108,7 +108,8 @@ Confirmable and lockable are off by default (DTA's generated model enables neith
 
 ## 11. Storage (T)
 
-- **T1** Sessions live in the Ogiri session table, not in the users table. All implementations share one schema per database engine (`ogiri/src/main/resources/META-INF/ogiri/`), so one database serves several backends and a token issued by one is accepted by another.
+- **T1** Sessions live in the Ogiri session table, not in the users table. All implementations ship the same schema per database engine from [`schema/`](schema) (`ogiri-<engine>.sql` for sessions, `users-<engine>.sql` for the DTA users table), so one database serves several backends and a token issued by one is accepted by another.
+- **T4** A session row's `subject_id` is the account's primary key as text, `realm` is the account type (default `users`, see G1), `tenant_id` is empty unless the application uses tenants, and `client` is the DTA client id. The access-token digest is SHA-256 of the token's ASCII text; the subject lock key (row in `ogiri_subject_locks`, locked `FOR UPDATE` to serialize issuance and revoke-all per account) is `SHA-256("ogiri-session-admission-v1" ‖ len(realm) ‖ realm ‖ len(tenant_id) ‖ tenant_id ‖ len(subject_id) ‖ subject_id)`, each part UTF-8 and each length a 4-byte big-endian byte count.
 - **T2** Timestamps come from the database clock. Session writes commit independently of any surrounding application transaction; reads never use a stale snapshot. Libraries never run DDL at startup; applications apply the shipped migration.
 - **T3** Revocation (sign-out, device removal, account deletion, lock) applies to the next request on every backend sharing the database.
 
