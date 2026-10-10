@@ -121,6 +121,7 @@ class Suite:
     def test_sign_in_requires_non_simple_json_request(self):
         r = self.s.sign_in(headers=[("Content-Type", "application/json")])
         expect(r.status == 403, "sign-in without X-Requested-With must be 403", r)
+        expect(not r.all("Set-Cookie"), "a rejected sign-in must not start a cookie session", r)
         r = self.s.sign_in(headers=[("Content-Type", "text/plain"), ("X-Requested-With", "Ogiri")])
         expect(r.status == 403, "non-JSON sign-in must be 403", r)
 
