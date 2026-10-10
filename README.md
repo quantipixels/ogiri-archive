@@ -1,6 +1,16 @@
 # Ogiri 0.0.1
 
-Low-setup opaque bearer sessions for **Spring Boot 4.1 / Java 17+**, with **PostgreSQL and MySQL 8+**. Keep your accounts, password encoder, identity model and authorization rules. Ogiri provides the reusable session lifecycle and Boot integration.
+Ogiri provides opaque bearer sessions: no JWTs, no cookies, and immediate server-side revocation. Every authenticated request checks the stored session. Keep your accounts and authorization rules; Ogiri handles the session lifecycle.
+
+## One protocol, three implementations
+
+| Implementation | Location |
+| --- | --- |
+| Spring Boot | This repo's Maven modules: [`ogiri`](ogiri/) and [`ogiri-spring-boot-starter`](ogiri-spring-boot-starter/) |
+| FastAPI | [`packages/python`](packages/python/README.md) (being built) |
+| Phoenix | [`packages/elixir`](packages/elixir/README.md) (being built) |
+
+All three follow the [shared protocol](contracts/PROTOCOL.md) and [HTTP conformance suite](contracts/conformance/check.py). The Spring modules support **Spring Boot 4.1 / Java 17+**, with **PostgreSQL and MySQL 8+**.
 
 This is a new, unpublished prototype API and schema. Earlier v3/v4 credentials and database layouts are incompatible; use the application-owned migration and require existing users to sign in again.
 
@@ -28,7 +38,13 @@ UserDetailsService users(UserRepository repository) {
 
 `UserRepository` and `securityUser` belong to your application. Return Spring `UserDetails`. The default adapter uses the immutable username as the stable account ID in realm `users`, with no tenant. For mutable usernames, opaque IDs or tenants, supply `OgiriAccounts`: `subject(Authentication)` resolves successful login to a stable full identity; `load(Subject)` loads current status/authorities from that identity. Never resolve an ID as a mutable login accidentally.
 
-Spring's `AuthenticationConfiguration` builds password authentication from your normal services/providers; an application `AuthenticationManager` or `PasswordEncoder` wins. Without your own encoder Ogiri uses Spring's delegating password encoder, so stored hashes need their algorithm prefix (for example `{bcrypt}`). No default users or passwords are created by Ogiri.
+Spring's `AuthenticationConfiguration` builds password authentication from your normal services/providers; an application `AuthenticationManager` or `PasswordEncoder` wins. The default delegating encoder accepts algorithm-prefixed hashes (for example `{bcrypt}`) and unprefixed bcrypt hashes. No default users or passwords are created by Ogiri.
+
+## Migrating from DeviseTokenAuth
+
+See the [protocol's migration table](contracts/PROTOCOL.md#migrating-from-devisetokenauth) for endpoint, header and storage changes. Devise's `$2a$` bcrypt password hashes verify as-is with Ogiri's default encoder; no password reset is needed. Existing DeviseTokenAuth tokens cannot be converted, so users sign in once after the switch.
+
+If Rails and Spring share the users table during migration, supply a plain `BCryptPasswordEncoder` bean so new hashes stay Rails-readable. Ogiri's default encoder writes `{bcrypt}`-prefixed hashes.
 
 ## Endpoints and defaults
 
@@ -106,9 +122,9 @@ Every authentication queries the authoritative database and then loads current a
 
 Ogiri 0.0.1 deliberately has no session lookup cache. Caching would make revocation stale across nodes, in-flight fills, direct SQL changes and cache outages. It also adds a second security-sensitive store and provider configuration to a prototype whose primary promise is immediate revocation. Applications may cache unrelated data through Spring Cache; that does not change Ogiri authentication. Revisit session caching only with an explicit consistency contract and measured need.
 
-## Deliberate limits
+## Non-goals
 
-No refresh/rotation protocol, cookie transport, registration, recovery orchestration or MFA is invented. Ordinary browser HttpSession applications should consider Spring Session JDBC; federated OAuth/OIDC should use an identity provider. These tools are complementary, not reimplemented here. See [SECURITY.md](SECURITY.md) for recovery coordination and token-lifetime trade-offs, and [PUBLISHING.md](PUBLISHING.md) for the opt-in Central release path.
+Registration, password reset, confirmation, OmniAuth, MFA, and JWT/refresh-token flows stay in the application. Ordinary browser HttpSession applications should consider Spring Session JDBC; federated OAuth/OIDC should use an identity provider. See [SECURITY.md](SECURITY.md) for recovery coordination and token-lifetime trade-offs, and [PUBLISHING.md](PUBLISHING.md) for the opt-in Central release path.
 
 The [independent example](examples/spring-app) consumes the actual installed artifacts. It exercises the opt-in default chain and existing multi-chain applications against both database engines. Production performance is not inferred from line counts; the opt-in benchmark measures a defined local storage workload.
 
