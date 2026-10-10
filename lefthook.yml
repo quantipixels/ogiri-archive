@@ -1,0 +1,9 @@
+pre-commit:
+  commands:
+    staged:
+      run: mise run check:staged
+
+pre-push:
+  commands:
+    gate:
+      run: mise run check

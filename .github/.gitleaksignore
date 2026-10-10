@@ -1,0 +1,23 @@
+# Exact historical documentation/test-fixture findings, verified from git show.
+# Each fingerprint is one immutable commit/file/rule/line; new secrets remain errors.
+
+# Base64 JSON sub-tokens documentation example, not an issued credential.
+8428c415ea333d1f164ebb539536978f91803ad0:docs/AUTHENTICATION.md:generic-api-key:146
+
+# Base64 JSON sub-tokens documentation example, not an issued credential.
+8428c415ea333d1f164ebb539536978f91803ad0:docs/sub-tokens.md:generic-api-key:66
+
+# Base64 JSON sub-tokens documentation example, not an issued credential.
+e14643270bfdcc5cbc1113f852c272ce5a14ff3a:docs/authentication.md:generic-api-key:146
+
+# Hard-coded testBearerToken fixture (JWT with only a sub claim).
+033e6a918b1caa971a666dc03dc143e8c7799a88:ogiri-core/src/test/kotlin/com/quantipixels/ogiri/security/testutil/TestFixtures.kt:jwt:57
+
+# Base64 JSON sub-tokens documentation example, not an issued credential.
+159553a06bdcae2bf2411eaa38b55f01d16ae4d5:docs/SUB_TOKENS.md:generic-api-key:50
+
+# Base64 JSON sub-tokens documentation example, not an issued credential.
+159553a06bdcae2bf2411eaa38b55f01d16ae4d5:docs/SUB_TOKENS.md:generic-api-key:170
+
+# Hard-coded testBearerToken fixture (JWT with only a sub claim).
+159553a06bdcae2bf2411eaa38b55f01d16ae4d5:ogiri-core/src/test/kotlin/com/quantipixels/ogiri/security/testutil/TestFixtures.kt:jwt:69

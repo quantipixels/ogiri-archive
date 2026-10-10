@@ -4,3 +4,12 @@
 *.iml
 .env
 .DS_Store
+
+# Python/Phoenix dependency and build outputs
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/_build/
+**/deps/
+**/node_modules/
