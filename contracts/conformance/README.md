@@ -1,6 +1,6 @@
 # Ogiri protocol rev-3 HTTP parity suite
 
-The suite asserts PROTOCOL rev 3.0 for Ogiri and keeps the pinned Rails 8 + DTA `b02076a` + Devise `05811fb` wire behavior as the reference oracle. **Read [ORACLE.md](ORACLE.md)** for every round-1 disagreement and its rev-3 resolution. Deliberate differences have §13-labelled `ogiri_only` checks (skipped with `--reference`); native Rails expectations have `reference_only` checks (skipped on Ogiri). Adopted DTA behavior stays shared. Open contract questions are explicit skips, never fabricated expectations.
+The suite asserts PROTOCOL rev 3.3 for Ogiri and keeps the pinned Rails 8 + DTA `b02076a` + Devise `05811fb` wire behavior as the reference oracle. **Read [ORACLE.md](ORACLE.md)** for every round-1 disagreement and its rev-3 resolution. Deliberate differences have §13-labelled `ogiri_only` checks (skipped with `--reference`); native Rails expectations have `reference_only` checks (skipped on Ogiri). Adopted DTA behavior stays shared. Open contract questions are explicit skips, never fabricated expectations.
 
 ## Run the oracle
 
@@ -78,7 +78,7 @@ All samples implement these variables; booleans are lowercase `true`/`false`, du
 | Profile | Overrides relative to baseline |
 | --- | --- |
 | `default` | none (rotation is explicitly off for D-R; confirmable/lockable off) |
-| `strict` | `CONFIRMABLE=true`, `LOCKABLE=true`, `MAXIMUM_ATTEMPTS=3`, `UNLOCK_IN_SECONDS=30`, `PARANOID=true`, `REDIRECT_ALLOWLIST=https://client.example.test/*`, `REMOVE_TOKENS_AFTER_PASSWORD_RESET=true`, `CHECK_CURRENT_PASSWORD_BEFORE_UPDATE=attributes`, `MAX_NUMBER_OF_DEVICES=3` |
+| `strict` | `CONFIRMABLE=true`, `LOCKABLE=true`, `MAXIMUM_ATTEMPTS=3`, `UNLOCK_IN_SECONDS=30`, `PARANOID=true`, `REDIRECT_ALLOWLIST=https://*.example.test/*`, `REMOVE_TOKENS_AFTER_PASSWORD_RESET=true`, `CHECK_CURRENT_PASSWORD_BEFORE_UPDATE=attributes`, `MAX_NUMBER_OF_DEVICES=3` |
 | `reset-token` | `REQUIRE_CLIENT_PASSWORD_RESET_TOKEN=true` |
 | `rotation` | `CHANGE_HEADERS_ON_EACH_REQUEST=true` |
 | `cookie` | `COOKIE_ENABLED=true` |
@@ -87,9 +87,9 @@ Override names in the table have the `OGIRI_` prefix. The Rails adapter maps sec
 
 ## Coverage and proof boundary
 
-Names cite H1–H8, S1–S8, V1–V2, R1–R11, P1–P6, C1–C2, U1–U3, E1, K1, G1, A1–A5, D1–D3, T1–T5; O1 is an explicit skip. Every test applies to all profiles unless decorated with `profiles`. Reference skips identify §13 D-Q, D-R, D-S, D-T, D-H, D-L, D-B, D-C, D-K and D-M/E1, device APIs and T2/T5 storage semantics. D-P needs configuration/source review; there is no pepper setting in the HTTP sample interface. Configured redirect defaults are exercised by the second variant above. Visible S3/S4 and non-paranoid confirmation/unlock responses are exercised by the first variant. Optional AC2 skips only when no peer URL exists. H8's store-outage check needs the runner-owned database container; it stops/restarts only that container and restores readiness in `finally`.
+Names cite H1–H8, S1–S8, V1–V2, R1–R11, P1–P6, C1–C2, U1–U3, E1, K1, G1, A1–A5, D1–D3, T1–T5; O1 is an explicit skip. Every test applies to all profiles unless decorated with `profiles`. Reference skips identify §13 D-Q, D-R, D-S, D-T, D-H, D-L, D-B, D-C, D-K, D-M/E1, D-A, D-V and U2 unlocked-account gating, device APIs and T2/T5 storage semantics. D-P needs configuration/source review; there is no pepper setting in the HTTP sample interface. Configured redirect defaults are exercised by the second variant above. Visible S3/S4 and non-paranoid confirmation/unlock responses are exercised by the first variant. Optional AC2 skips only when no peer URL exists. H8's store-outage check needs the runner-owned database container; it stops/restarts only that container and restores readiness in `finally`.
 
-HTTP assertions use the real response. Account views require exact column sets; IDs and creation timestamps are generated values, checked for type/UTC syntax. Tests do not reimplement the Rails controllers. Email links are read through Mailpit's HTTP API, recipients/config/redirect/token storage are checked (confirmation is raw in pinned Devise; Ogiri checks all three SHA-256 hex digests), and links are requested without following external redirects. U3's malformed DTA `Location` needs a raw httpx transport because httpx's high-level client rejects it even when redirects are disabled.
+HTTP assertions use the real response. Account views require exact A3 default column sets on Ogiri; the native reference additionally includes the fixture `role` column (D-V). IDs and creation timestamps are generated values, checked for type/UTC syntax. Tests do not reimplement the Rails controllers. Email links are read through Mailpit's HTTP API, recipients/config/redirect/token storage are checked (confirmation is raw in pinned Devise; Ogiri checks all three SHA-256 hex digests), and links are requested without following external redirects. U3's malformed DTA `Location` needs a raw httpx transport because httpx's high-level client rejects it even when redirects are disabled.
 
 Expiry, reset windows, lock duration and device eviction change database timestamps. Only the batch-buffer test waits for real time; bounded container/database readiness waits are infrastructure checks. Oracle session expiry changes `users.tokens`; Ogiri expiry changes `ogiri_sessions`. Tests are sequential; do not use pytest-xdist against one database.
 
@@ -112,3 +112,5 @@ uv run --project contracts/conformance pyright --project contracts/conformance
 Ruff enables security (`S`), annotations, imports, bugbear, simplification and modern Python rules. Only necessary test-assert/public-fixture-credential and fixed local subprocess exceptions are scoped to tests/runner. Pyright uses strict mode. Dependencies are pytest/httpx and the small psycopg binary DB adapter; tooling is in the dev group.
 
 Session mutation helpers use epoch milliseconds for Ogiri and seconds in reference users.tokens. T5 checks database-clock bounds and expiry-header flooring; P6 deliberately separates expiry ordering from (created_at, id), including a creation-time tie. D3 remains revoke-all pending the T5 wording correction. See ORACLE for C1/R11, R6 and cookie contract questions.
+
+Rev 3.2/3.3 adds strict-profile D-A checks using `https://*.example.test/*`: deceptive fragment/query/userinfo redirects return the R5/P3 422 shape, while `https://app.example.test/reset` remains allowed. Default A3 views omit the fixture role unless explicitly configured; protected-route role checks still use that column. `PATCH /auth` clearing an earlier reset link and applying P6 is shared DTA proof. U2 sending no unlock mail for an unlocked account is Ogiri-only: pinned DTA sends mail anyway, with a separate reference observation. D-E's mail-outage response difference is documented in ORACLE; this round does not inject SMTP delivery failures.

@@ -1,7 +1,7 @@
 source "https://rubygems.org"
 gem "rails", "~> 8.0.0"
 gem "pg", "~> 1.5"
-gem "puma", "~> 6.0"
+gem "puma", "~> 7.2.1"
 gem "devise", git: "https://github.com/heartcombo/devise.git", ref: "05811fb8366edd08874111d0f6fb44543e1c91ef"
 gem "devise_token_auth", git: "https://github.com/lynndylanhurley/devise_token_auth.git", ref: "b02076a930f7d0a4a155e25feaa7a50b86dbc625"
 gem "rack-cors", "~> 3.0"
