@@ -16,32 +16,46 @@ import org.springframework.security.core.userdetails.UserDetails;
  * Snapshot of the application's account. Wire projection is explicit and excludes Devise secrets.
  */
 public final class OgiriAccount implements UserDetails {
-    private static final Set<String> SECRET =
+    private static final Set<String> RESOURCE =
             Set.of(
-                    "encrypted_password",
-                    "reset_password_token",
-                    "reset_password_sent_at",
-                    "remember_created_at",
-                    "sign_in_count",
-                    "current_sign_in_at",
-                    "last_sign_in_at",
-                    "current_sign_in_ip",
-                    "last_sign_in_ip",
-                    "password_salt",
-                    "confirmation_token",
-                    "confirmed_at",
-                    "confirmation_sent_at",
-                    "remember_token",
-                    "unconfirmed_email",
-                    "failed_attempts",
-                    "unlock_token",
-                    "locked_at",
-                    "tokens");
+                    "id",
+                    "provider",
+                    "uid",
+                    "email",
+                    "name",
+                    "nickname",
+                    "image",
+                    "allow_password_change",
+                    "created_at",
+                    "updated_at");
+    private final Set<String> visible;
     private final Map<String, Object> columns;
     private final List<GrantedAuthority> authorities;
 
     public OgiriAccount(
             Map<String, Object> columns, Collection<? extends GrantedAuthority> authorities) {
+        this(columns, authorities, List.of());
+    }
+
+    public OgiriAccount(
+            Map<String, Object> columns,
+            Collection<? extends GrantedAuthority> authorities,
+            Collection<String> additionalColumns) {
+        var allowed = new java.util.HashSet<>(RESOURCE);
+        if (additionalColumns.stream()
+                .anyMatch(
+                        field ->
+                                Set.of(
+                                                "encrypted_password",
+                                                "reset_password_token",
+                                                "confirmation_token",
+                                                "unlock_token",
+                                                "tokens")
+                                        .contains(field))) {
+            throw new IllegalArgumentException("Secret account columns cannot be view fields");
+        }
+        allowed.addAll(additionalColumns);
+        this.visible = Set.copyOf(allowed);
         this.columns = Collections.unmodifiableMap(new LinkedHashMap<>(columns));
         this.authorities = List.copyOf(authorities);
     }
@@ -79,7 +93,7 @@ public final class OgiriAccount implements UserDetails {
 
     public Map<String, Object> view(boolean tokenView) {
         var result = new LinkedHashMap<>(columns);
-        SECRET.forEach(result::remove);
+        result.keySet().retainAll(visible);
         if (tokenView) {
             result.remove("created_at");
             result.remove("updated_at");

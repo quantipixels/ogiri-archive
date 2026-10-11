@@ -16,6 +16,10 @@ public interface AccountStore {
 
     Optional<OgiriAccount> lock(String id);
 
+    default OgiriAccount preview(Map<String, Object> columns) {
+        return new OgiriAccount(columns, java.util.List.of());
+    }
+
     OgiriAccount create(Map<String, Object> columns);
 
     OgiriAccount update(String id, Map<String, Object> changes);

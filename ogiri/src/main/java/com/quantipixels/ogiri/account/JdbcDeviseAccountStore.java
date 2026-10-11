@@ -25,9 +25,20 @@ public final class JdbcDeviseAccountStore implements AccountStore {
     private final JdbcTemplate jdbc;
     private final String table;
     private final OgiriAuthorities authorities;
+    private final List<String> visibleColumns;
 
     public JdbcDeviseAccountStore(
             AuthTransactions transactions, String table, OgiriAuthorities authorities) {
+        this(transactions, table, authorities, List.of());
+    }
+
+    public JdbcDeviseAccountStore(
+            AuthTransactions transactions,
+            String table,
+            OgiriAuthorities authorities,
+            List<String> visibleColumns) {
+        this.visibleColumns =
+                visibleColumns.stream().map(JdbcDeviseAccountStore::identifier).toList();
         this.jdbc = transactions.jdbc();
         this.table = identifier(table);
         this.authorities = authorities;
@@ -51,7 +62,7 @@ public final class JdbcDeviseAccountStore implements AccountStore {
 
     @Override
     public Optional<OgiriAccount> findByEmail(String email) {
-        return select("LOWER(TRIM(email)) = ? AND provider = 'email'", normalize(email));
+        return select("email = ? AND provider = 'email'", normalize(email));
     }
 
     @Override
@@ -90,7 +101,53 @@ public final class JdbcDeviseAccountStore implements AccountStore {
             values.put(metadata.getColumnLabel(i), value);
         }
         return new OgiriAccount(
-                values, authorities.map(java.util.Collections.unmodifiableMap(values)));
+                values,
+                authorities.map(java.util.Collections.unmodifiableMap(values)),
+                visibleColumns);
+    }
+
+    @Override
+    public OgiriAccount preview(Map<String, Object> columns) {
+        Map<String, Object> defaults =
+                jdbc.execute(
+                        (org.springframework.jdbc.core.ConnectionCallback<Map<String, Object>>)
+                                connection -> {
+                                    var values = new LinkedHashMap<String, Object>();
+                                    try (var metadata =
+                                            connection
+                                                    .getMetaData()
+                                                    .getColumns(
+                                                            connection.getCatalog(),
+                                                            connection.getSchema(),
+                                                            table,
+                                                            null)) {
+                                        while (metadata.next()) {
+                                            String name = metadata.getString("COLUMN_NAME");
+                                            String value = metadata.getString("COLUMN_DEF");
+                                            Object decoded = null;
+                                            if (value != null && value.startsWith("'")) {
+                                                int end = value.lastIndexOf('\'');
+                                                if (end > 0)
+                                                    decoded =
+                                                            value.substring(1, end)
+                                                                    .replace("''", "'");
+                                            } else if (value != null
+                                                    && !value.contains("(")
+                                                    && !name.endsWith("_at")) {
+                                                decoded =
+                                                        switch (value) {
+                                                            case "false", "0" -> false;
+                                                            case "true", "1" -> true;
+                                                            default -> value;
+                                                        };
+                                            }
+                                            values.put(name, decoded);
+                                        }
+                                    }
+                                    return values;
+                                });
+        defaults.putAll(columns);
+        return new OgiriAccount(defaults, java.util.List.of(), visibleColumns);
     }
 
     @Override
@@ -132,6 +189,7 @@ public final class JdbcDeviseAccountStore implements AccountStore {
                                         ? java.time.LocalDateTime.ofInstant(
                                                 instant, java.time.ZoneOffset.UTC)
                                         : value));
+        if (result.get("email") instanceof String email) result.put("email", normalize(email));
         return result;
     }
 
