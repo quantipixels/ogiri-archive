@@ -48,3 +48,9 @@ The sample implements the [runner environment interface](../../contracts/conform
 Account views use the protocol default allowlist. Set `OGIRI_ACCOUNT_VIEW_FIELDS=role` to expose the fixture role explicitly; authority mapping always reads it independently.
 
 The additional `/admin_auth` mount reads the application-owned `admins` table and inherits root settings. The conformance runner provisions it; a manually managed database must apply that account-table migration too.
+
+## Cookie mode
+
+Set `OGIRI_COOKIE_ENABLED=true`; the sample uses distinct `auth_cookie` and `admin_auth_cookie` names for its realms. Auth cookies are HttpOnly, SameSite=Lax, Path=/ and Secure by default; set `OGIRI_COOKIE_SECURE=false` only for local HTTP development. Cookie mode omits the Authorization response header.
+
+Before sign-in, call an existing safe route such as `GET /auth/sign_in` and read its `XSRF-TOKEN` cookie (the endpoint may return 405). Send that cookie and its value as `X-XSRF-TOKEN` on sign-in and on unsafe cookie-authenticated requests. Sign-in requires CSRF even before an auth cookie exists. Complete named DTA headers or Bearer credentials select header authentication and require no cookie CSRF on protected requests. Sign-out and terminal session/account revocation clear the auth cookie.
