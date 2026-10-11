@@ -70,7 +70,8 @@ class Settings:
 
 
 class API:
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, *, login_csrf: bool = False) -> None:
+        self.login_csrf = login_csrf
         self.url = url.rstrip("/")
         self.http = httpx.Client(
             base_url=self.url, timeout=15, follow_redirects=False, trust_env=False
@@ -88,8 +89,20 @@ class API:
         json: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
         data: dict[str, str] | None = None,
+        login_csrf: bool = True,
     ) -> httpx.Response:
         self.http.cookies.clear()
+        if self.login_csrf and login_csrf and method == "POST" and path.endswith("/sign_in"):
+            # Bootstrap from an existing safe route; preserve explicit cookies and bad echoes.
+            headers = dict(headers or {})
+            cookie = headers.get("Cookie", "")
+            if "XSRF-TOKEN=" not in cookie:
+                bootstrap = self.http.get(path)
+                token = bootstrap.cookies.get("XSRF-TOKEN")
+                assert token is not None, "cookie-mode safe route must issue XSRF-TOKEN"
+                headers["Cookie"] = "; ".join(filter(None, (cookie, "XSRF-TOKEN=" + token)))
+                headers.setdefault("X-XSRF-TOKEN", token)
+            self.http.cookies.clear()
         return self.http.request(method, path, headers=headers, json=json, params=params, data=data)
 
     def raw_get(self, path: str) -> httpx.Response:

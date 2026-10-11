@@ -45,10 +45,11 @@ const httpWrapper = async (url, init = {}) => {
   }
   const response = await fetch(url, {...init, headers, redirect: 'manual'});
   trace.push({method: init.method ?? 'GET', path: new URL(url).pathname, status: response.status});
-  const setCookie = response.headers.getSetCookie().find(value => value.startsWith('auth_cookie='));
-  if (setCookie) cookie = setCookie.split(';')[0];
-  const xsrfCookie = response.headers.getSetCookie().find(value => value.startsWith('XSRF-TOKEN='));
-  if (xsrfCookie) csrf = xsrfCookie.split(';')[0];
+  // Apply every write in order, as a browser does when Spring clears then replaces XSRF.
+  for (const value of response.headers.getSetCookie()) {
+    if (value.startsWith('auth_cookie=')) cookie = value.split(';')[0];
+    if (value.startsWith('XSRF-TOKEN=')) csrf = value.split(';')[0];
+  }
   const next = {};
   for (const key of ['access-token', 'client', 'uid', 'expiry', 'token-type']) {
     const value = response.headers.get(key);

@@ -1089,7 +1089,9 @@ def test_A5_unpermitted_fields(api: API, db: Database) -> None:
 
 @pytest.mark.ac2
 def test_T3_AC2_cross_backend_auth_and_revocation(api: API, settings: Settings) -> None:
-    peer = API(settings.peer_url)
+    peer = API(
+        settings.peer_url, login_csrf=settings.profile == "cookie" and not settings.reference
+    )
     try:
         values = api.login()
         assert peer.request("GET", "/me", headers=values).json() == {"uid": DEMO}
@@ -1472,7 +1474,9 @@ def test_A4_D_L_inactive_tokens_rejected(
     assert response.status_code == 401
     assert response.json() == {"errors": ["You need to sign in or sign up before continuing."]}
     if settings.peer_url:
-        peer = API(settings.peer_url)
+        peer = API(
+            settings.peer_url, login_csrf=settings.profile == "cookie" and not settings.reference
+        )
         try:
             assert peer.request("GET", "/me", headers=values).status_code == 401
         finally:
@@ -1594,7 +1598,9 @@ def test_E1_ogiri_sha256_one_time_tokens(
     stored = db.one(queries[column], (email,))
     assert stored == hashlib.sha256(raw.encode("ascii")).hexdigest()
     if settings.peer_url:
-        peer = API(settings.peer_url)
+        peer = API(
+            settings.peer_url, login_csrf=settings.profile == "cookie" and not settings.reference
+        )
         try:
             response = peer.request("GET", link.path + "?" + link.query)
             assert response.status_code == 302
@@ -1617,8 +1623,19 @@ def test_E1_D_M_legacy_raw_confirmation_rejected(api: API, db: Database) -> None
 @pytest.mark.profiles("cookie")
 @pytest.mark.ogiri_only("D-K: K1 cookie defaults and double-submit CSRF on unsafe cookie auth")
 def test_K1_D_K_cookie_defaults_and_csrf(api: API) -> None:
-    issued = api.signin()
-    cookies = issued.headers.get_list("set-cookie")
+    bootstrap = api.request("GET", "/auth/sign_in")
+    xsrf = next(c for c in bootstrap.headers.get_list("set-cookie") if c.startswith("XSRF-TOKEN="))
+    issued = api.request(
+        "POST",
+        "/auth/sign_in",
+        json={"email": DEMO, "password": PASSWORD},
+        headers={
+            "Cookie": xsrf.split(";", 1)[0],
+            "X-XSRF-TOKEN": unquote(xsrf.split(";", 1)[0].split("=", 1)[1]),
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    cookies = issued.headers.get_list("set-cookie") + bootstrap.headers.get_list("set-cookie")
     auth = next(c for c in cookies if c.startswith("auth_cookie="))
     xsrf = next(c for c in cookies if c.startswith("XSRF-TOKEN="))
     for attribute in ("httponly", "samesite=lax", "path=/"):
@@ -1887,3 +1904,88 @@ def test_U2_reference_unlocked_account_receives_mail(api: API, db: Database, mai
     assert "/auth/unlock?" in mail.link(DEMO, "Unlock")
     assert db.one("SELECT unlock_token FROM users WHERE email=%s", (DEMO,)) is not None
     assert db.one("SELECT locked_at FROM users WHERE email=%s", (DEMO,)) is None
+
+
+@pytest.mark.profiles("cookie")
+@pytest.mark.ogiri_only("D-K: cookie-mode login requires double-submit even without auth cookies")
+def test_K1_login_csrf_and_stale_cookie_signin(api: API, db: Database) -> None:
+    payload = {"email": DEMO, "password": PASSWORD}
+    before = db.one("SELECT COUNT(*) FROM ogiri_sessions")
+    for headers in ({}, {"Cookie": "auth_cookie=stale"}, {"X-XSRF-TOKEN": "forged"}):
+        response = api.request(
+            "POST", "/auth/sign_in", json=payload, headers=headers, login_csrf=False
+        )
+        error(response, 403, "Invalid CSRF token")
+    bootstrap = api.request("GET", "/auth/sign_in")
+    xsrf = next(
+        c.split(";", 1)[0]
+        for c in bootstrap.headers.get_list("set-cookie")
+        if c.startswith("XSRF-TOKEN=")
+    )
+    parameter_only = api.request(
+        "POST",
+        "/auth/sign_in",
+        json=payload,
+        params={"_csrf": xsrf.split("=", 1)[1]},
+        headers={"Cookie": xsrf},
+        login_csrf=False,
+    )
+    error(parameter_only, 403, "Invalid CSRF token")
+    assert db.one("SELECT COUNT(*) FROM ogiri_sessions") == before
+    response = api.request(
+        "POST", "/auth/sign_in", json=payload, headers={"Cookie": "auth_cookie=stale"}
+    )
+    assert response.status_code == 200, response.text
+    assert api.request("GET", "/me", headers=credentials(response)).status_code == 200
+
+
+@pytest.mark.profiles("cookie")
+@pytest.mark.ogiri_only("H2/D-K: malformed or partial Bearer fields cannot bypass cookie CSRF")
+def test_K1_source_precedence_and_realm_isolation(api: API) -> None:
+    bootstrap = api.request("GET", "/auth/sign_in")
+    csrf = next(
+        c.split(";", 1)[0]
+        for c in bootstrap.headers.get_list("set-cookie")
+        if c.startswith("XSRF-TOKEN=")
+    )
+    issued = api.request(
+        "POST",
+        "/auth/sign_in",
+        json={"email": DEMO, "password": PASSWORD},
+        headers={"Cookie": csrf, "X-XSRF-TOKEN": unquote(csrf.split("=", 1)[1])},
+    )
+    assert issued.status_code == 200, issued.text
+    auth = next(
+        c.split(";", 1)[0]
+        for c in issued.headers.get_list("set-cookie")
+        if c.startswith("auth_cookie=")
+    )
+    xsrf = csrf
+    cookie = auth + "; " + xsrf
+    malformed = base64.b64encode(
+        json.dumps({"uid": 1, "access-token": False, "client": []}).encode()
+    ).decode()
+    for extra in (
+        {"Authorization": "Bearer !!!"},
+        {"Authorization": "Bearer " + malformed},
+        {"uid": DEMO},
+    ):
+        rejected = api.request("DELETE", "/auth/sign_out", headers={"Cookie": cookie} | extra)
+        error(rejected, 403, "Invalid CSRF token")
+        assert api.request("GET", "/me", headers={"Cookie": auth}).status_code == 200
+    for foreign in (auth, auth.replace("auth_cookie=", "admin_auth_cookie=", 1)):
+        error(
+            api.request("GET", "/admin_auth/validate_token", headers={"Cookie": foreign}),
+            401,
+            "Invalid login credentials",
+        )
+    encoded = base64.b64encode(json.dumps(credentials(issued)).encode()).decode()
+    signed_out = api.request(
+        "DELETE", "/auth/sign_out", headers={"Cookie": cookie, "Authorization": "Bearer " + encoded}
+    )
+    assert signed_out.status_code == 200, signed_out.text
+    assert any(
+        "max-age=0" in c.lower()
+        for c in signed_out.headers.get_list("set-cookie")
+        if c.startswith("auth_cookie=")
+    )
