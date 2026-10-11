@@ -178,10 +178,12 @@ def main() -> int:
                     str(ROOT / "examples/rails-reference"),
                 ],
                 check=True,
+                timeout=600,
             )
         subprocess.run(
             ["npm", "ci", "--prefix", str(SUITE), "--ignore-scripts", "--no-audit", "--no-fund"],
             check=True,
+            timeout=120,
         )
         pg_port = port()
         pg = container(
@@ -258,7 +260,7 @@ def main() -> int:
                 peer, peer_name = sample(env, profile + "-peer", args.peer_command)
                 pytest_args.extend(["--peer-url", peer])
             print(f"PROFILE {profile}: {base}", flush=True)
-            result = subprocess.run([*pytest_args, *args.pytest_args], check=False)
+            result = subprocess.run([*pytest_args, *args.pytest_args], check=False, timeout=600)
             failure |= result.returncode
             if sample_name:
                 (SUITE / "results" / f"{profile}.log").write_text(
@@ -280,7 +282,7 @@ def main() -> int:
                     proc.wait(timeout=15)
                 except subprocess.TimeoutExpired:
                     os.killpg(proc.pid, signal.SIGKILL)
-                    proc.wait()
+                    proc.wait(timeout=15)
         for log in logs:
             log.close()
         for name in reversed(containers):

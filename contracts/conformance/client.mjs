@@ -27,13 +27,17 @@ globalThis.window = {
   clearInterval, setTimeout, clearTimeout,
 };
 let cookie = '';
+let csrf = '';
 let captured = {};
 let client;
 const trace = [];
 const httpWrapper = async (url, init = {}) => {
   const headers = new Headers(init.headers);
   if (profile === 'cookie') {
-    if (cookie) headers.set('Cookie', cookie);
+    if (cookie) headers.set('Cookie', [cookie, csrf].filter(Boolean).join('; '));
+    if (csrf && !['GET', 'HEAD', 'OPTIONS'].includes(init.method ?? 'GET')) {
+      headers.set('X-XSRF-TOKEN', decodeURIComponent(csrf.split('=').slice(1).join('=')));
+    }
   } else {
     for (const [key, value] of Object.entries(memory.get('auth_headers') ?? {})) {
       headers.set(key, value);
@@ -43,6 +47,8 @@ const httpWrapper = async (url, init = {}) => {
   trace.push({method: init.method ?? 'GET', path: new URL(url).pathname, status: response.status});
   const setCookie = response.headers.getSetCookie().find(value => value.startsWith('auth_cookie='));
   if (setCookie) cookie = setCookie.split(';')[0];
+  const xsrfCookie = response.headers.getSetCookie().find(value => value.startsWith('XSRF-TOKEN='));
+  if (xsrfCookie) csrf = xsrfCookie.split(';')[0];
   const next = {};
   for (const key of ['access-token', 'client', 'uid', 'expiry', 'token-type']) {
     const value = response.headers.get(key);
