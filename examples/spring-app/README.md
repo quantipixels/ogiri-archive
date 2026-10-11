@@ -1,39 +1,46 @@
-# Independent Spring Boot consumer
+# Spring Boot v2 consumer
 
-The example uses a Devise-shaped `users` table from [`contracts/fixtures/devise-users.sql`](../../contracts/fixtures/devise-users.sql). Its `UserDetailsService` reads email, bcrypt password hash, role and lock status from that table. The example opts into Ogiri with `ogiri.enabled=true`; the starter supplies the session service, security integration and JSON endpoints.
+This application consumes the public Ogiri starter API. The default Devise-table AccountStore owns auth behavior; the sample supplies only role mapping, configuration and protected GET /me and GET /admin routes. It exposes role through `ogiri.account.columns=role`. The principal is OgiriAccount, with ordinary Spring method security; no UserDetailsService/securityUser adapter is required.
 
-The `demo` Spring profile drops and recreates the fixture's users table on every startup. **Use it only with a disposable database, never a real application database.** All three fixture accounts use password `test-password`:
+## Build and run through the parity runner
 
-| Username | Behavior |
-| --- | --- |
-| `demo@example.com` | User role |
-| `admin@example.com` | Admin role; can access `/admin` |
-| `locked@example.com` | Locked account; sign-in returns 401 |
-
-Install the library from the repo root with `mvn -B -ntp clean install`, using the disposable test database settings in [CONTRIBUTING.md](../../CONTRIBUTING.md). Provision `META-INF/ogiri/schema-postgresql.sql` or `schema-mysql.sql` from the installed core JAR through your own migration; the demo profile initializes only the users fixture.
-
-From the repo root, set your disposable database connection and run the sample:
+From the repository root:
 
 ```sh
-export OGIRI_JDBC_URL=jdbc:postgresql://localhost:5432/ogiri_test
-export OGIRI_JDBC_USER=ogiri
-export OGIRI_JDBC_PASSWORD=ogiri
-cd examples/spring-app
-mvn spring-boot:run -Dspring-boot.run.profiles=demo
+bash scripts/platform/java.sh check
+bash scripts/platform/java.sh sample
+contracts/conformance/run.sh --profile default \
+  --sample-command 'mise exec java@temurin-17.0.17+10 -- python3 examples/spring-app/run.py' \
+  -- -k 'test_S1_json_and_form_signin or test_R1_signup or test_R10_destroy_account_all_clients'
 ```
 
-For MySQL add `-Pmysql` and use its JDBC URL; the example's PostgreSQL runtime dependency can be removed in a MySQL application. Run from `examples/spring-app` so the demo profile can locate the fixture.
+The runner supplies PORT, OGIRI_DATABASE_URL, SMTP and protocol settings, creates a disposable PostgreSQL/Mailpit fixture, starts the sample, exercises it and stops its process group and containers. `run.py` converts the runner's PostgreSQL URL into JDBC configuration and launches the packaged JAR. The selected tests exercise sign-in, registration and account deletion. Broader profiles become usable as their implementation checkpoints land.
 
-Sign in with `POST /auth/sign-in`, JSON username `demo@example.com`, password `test-password` and a client label; include `Content-Type: application/json` and `X-Requested-With: Ogiri`. Use the returned Authorization header for `/me`, `/auth/session` and `/auth/sessions`. `/admin` demonstrates method-level role denial.
+For a manually managed disposable database, apply the packaged ogiri/users schemas and the shared devise-users fixture, then set OGIRI_DATABASE_URL (PostgreSQL URL or JDBC URL), OGIRI_JDBC_USER/OGIRI_JDBC_PASSWORD when using JDBC, OGIRI_SMTP_HOST/OGIRI_SMTP_PORT and PORT. Start with `mise exec java@temurin-17.0.17+10 -- python3 examples/spring-app/run.py`. Stop that process when finished. Production schema migrations are application-owned; Ogiri performs no startup DDL.
 
-With the sample running, run the shared conformance suite from the repo root (adjust the URL for a custom server port):
+The demo profile recreates disposable users/session fixtures. It must only be used on a throwaway database. `bash scripts/platform/java.sh ci` drives the installed-artifact consumer tests with OGIRI_TEST_DATABASE, OGIRI_TEST_JDBC_URL, OGIRI_TEST_JDBC_USER and OGIRI_TEST_JDBC_PASSWORD. Those tests also prove a one-connection pool and matching JPA host transactions.
+
+## Try the HTTP flow
+
+Fixture emails demo@example.com and admin@example.com both use password test-password. The default profile has lockout and confirmation off. Set BASE_URL to the running sample's HTTP URL:
 
 ```sh
-python3 contracts/conformance/check.py --base-url http://localhost:8080
+curl -i "$BASE_URL/auth/sign_in" \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"demo@example.com","password":"test-password"}'
 ```
 
-Expected result: `10 passed, 0 failed, 1 skipped`. The cross-backend check needs `--peer-url` and is skipped when no peer is supplied.
+Copy access-token, client and uid from the response headers and send them back:
 
-`ConsumerTest` verifies the default path with a one-connection pool. `ServletPathConsumerTest` verifies login with a context path, MVC servlet prefix and custom Ogiri base path. `HostChainTest` demonstrates two application-owned chains, a custom tenant/ID mapping, disabled endpoints, preserved CSRF and directory outages. Neither test assumes H2 represents a production database.
+```sh
+curl -i "$BASE_URL/me" \
+  -H "access-token: $ACCESS_TOKEN" -H "client: $CLIENT" -H "uid: $AUTH_UID"
+curl -i -X DELETE "$BASE_URL/auth/sign_out" \
+  -H "access-token: $ACCESS_TOKEN" -H "client: $CLIENT" -H "uid: $AUTH_UID"
+```
 
-Configure driver-specific socket timeouts in the JDBC URL: PostgreSQL uses `socketTimeout=10` for ten seconds, while MySQL uses `socketTimeout=10000`. The common application properties intentionally do not set a driver-specific socket timeout. See [pgJDBC parameters](https://jdbc.postgresql.org/documentation/use/) and [Connector/J networking](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-networking.html).
+/me returns `{"uid":"demo@example.com"}`; replaying the revoked credentials returns 401. /admin requires the admin role. /auth/validate_token validates the account and /auth/sessions lists clients.
+
+DTA clients replay **access-token/client/uid**. **Authorization: Bearer base64(JSON)** is an alternative encoding of those credentials, not a JWT; the response provides a complete header ready to replay. No X-Requested-With header is required. Sign-in returns an account JSON object and credentials in headers, rather than session metadata in the body.
+
+The sample implements the [runner environment interface](../../contracts/conformance/README.md#sample-env-interface). MySQL consumer proof uses its JDBC URL and `OGIRI_TEST_DATABASE=mysql`; the current parity runner's database mutation adapter supports PostgreSQL. The library/sample manage Jackson 3.1.7 and Tomcat 11.0.25, and the SBOM gate scans both resolved graphs.
