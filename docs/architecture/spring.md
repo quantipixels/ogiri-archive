@@ -42,3 +42,11 @@ Preserve and adapt real PostgreSQL/MySQL lock, DB-clock, independent-commit, bou
 ## Scope and proof limits
 
 No JWT, v1 compatibility, resource-server dependency, automatic schema migration, pepper or durable outbox. The progress report records slice commits, executed proof, contract questions and all merged-review dispositions. Architecture describes the selected final structure; unimplemented or unverified mechanisms remain explicit in that report until completed.
+
+## Registration checkpoint and adopter notes
+
+Registration and account updates use Jakarta Bean Validation through Spring Validator. Account views allow only the DTA resource columns (id, provider, uid, email, name, nickname, image, allow_password_change, created_at, updated_at) plus explicitly configured `ogiri.account.columns`; SELECT * is used for the private credential snapshot, never as the wire projection. The sample opts into `role`. The store normalizes email on create/update and uses indexed `email = ?` lookup. Existing migrated addresses must already have Devise's normalized form, or be normalized by an application migration.
+
+The provider bean can participate in Spring's global AuthenticationManager assembly. Ogiri's filter uses its typed resolver and a dedicated ProviderManager. Applications with multiple PlatformTransactionManager beans must supply an AuthTransactions bean tied to the correct DataSource; ambiguity fails startup. An application-owned SecurityFilterChain must opt into `http.with(OgiriConfigurer.ogiri(runtime), configurer -> {})` and choose its endpoint authorization rules. Ogiri does not replace that chain.
+
+Subject, session value records, JdbcSessions, AuthTransactions and OgiriRuntime are intentional public integration APIs for host transaction and custom-chain integration. The locked storage operations and JDBC accessor still need isolation behind internal implementation packages in the next API checkpoint. MVC's current-identity helper is private. Rotation, lockout, confirmation and scheduled cleanup configuration that needs unfinished behavior fails startup until its implementation slice removes the respective guard.

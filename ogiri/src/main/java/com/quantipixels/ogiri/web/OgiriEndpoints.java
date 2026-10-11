@@ -26,9 +26,93 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("${ogiri.base-path:/auth}")
 public final class OgiriEndpoints {
     private final OgiriRuntime runtime;
+    private final com.quantipixels.ogiri.account.RegistrationService registration;
 
-    public OgiriEndpoints(OgiriRuntime runtime) {
+    public OgiriEndpoints(
+            OgiriRuntime runtime, com.quantipixels.ogiri.account.RegistrationService registration) {
         this.runtime = runtime;
+        this.registration = registration;
+    }
+
+    @org.springframework.web.bind.annotation.RequestMapping(
+            path = {"", "/"},
+            method = org.springframework.web.bind.annotation.RequestMethod.POST,
+            consumes = "application/json")
+    public Map<String, Object> register(
+            @RequestBody Map<String, Object> values, HttpServletRequest request) {
+        var result = registration.register(values);
+        ResponseCredentials.issued(request, result.issued(), result.account().uid());
+        return Map.of("status", "success", "data", result.account().view(false));
+    }
+
+    @org.springframework.web.bind.annotation.RequestMapping(
+            path = {"", "/"},
+            method = org.springframework.web.bind.annotation.RequestMethod.POST,
+            consumes = "application/x-www-form-urlencoded")
+    public Map<String, Object> registerForm(
+            @RequestParam Map<String, String> values, HttpServletRequest request) {
+        return register(new java.util.LinkedHashMap<>(values), request);
+    }
+
+    @org.springframework.web.bind.annotation.RequestMapping(
+            path = {"", "/"},
+            method = {
+                org.springframework.web.bind.annotation.RequestMethod.PUT,
+                org.springframework.web.bind.annotation.RequestMethod.PATCH
+            },
+            consumes = "application/json")
+    public Map<String, Object> update(
+            @RequestBody Map<String, Object> values,
+            Authentication authentication,
+            HttpServletRequest request) {
+        var identity = accountIdentity(authentication, "User not found.");
+        var account = registration.update(identity.getPrincipal(), values);
+        var credentials = (ResponseCredentials) request.getAttribute(ResponseCredentials.ATTRIBUTE);
+        if (credentials != null)
+            request.setAttribute(
+                    ResponseCredentials.ATTRIBUTE,
+                    new ResponseCredentials(
+                            credentials.token(),
+                            credentials.client(),
+                            account.uid(),
+                            credentials.expiry()));
+        return Map.of("status", "success", "data", account.view(false));
+    }
+
+    @org.springframework.web.bind.annotation.RequestMapping(
+            path = {"", "/"},
+            method = {
+                org.springframework.web.bind.annotation.RequestMethod.PUT,
+                org.springframework.web.bind.annotation.RequestMethod.PATCH
+            },
+            consumes = "application/x-www-form-urlencoded")
+    public Map<String, Object> updateForm(
+            @RequestParam Map<String, String> values,
+            Authentication authentication,
+            HttpServletRequest request) {
+        return update(new java.util.LinkedHashMap<>(values), authentication, request);
+    }
+
+    @DeleteMapping({"", "/"})
+    public Map<String, Object> destroy(
+            Authentication authentication,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        var identity = accountIdentity(authentication, "Unable to locate account for destruction.");
+        registration.destroy(identity.getPrincipal());
+        clear(request, response);
+        return Map.of(
+                "status",
+                "success",
+                "message",
+                "Account with UID '" + identity.getPrincipal().uid() + "' has been destroyed.");
+    }
+
+    private static OgiriAuthentication accountIdentity(
+            Authentication authentication, String message) {
+        if (authentication instanceof OgiriAuthentication identity && identity.isAuthenticated())
+            return identity;
+        throw com.quantipixels.ogiri.account.RegistrationService.failure(404, message);
     }
 
     public record Login(String email, String password) {
@@ -38,9 +122,19 @@ public final class OgiriEndpoints {
         }
     }
 
+    @PostMapping("/sign_in")
+    public ResponseEntity<Map<String, Object>> unsupportedSignInBody() {
+        return ResponseEntity.status(415)
+                .body(
+                        Map.of(
+                                "success",
+                                false,
+                                "errors",
+                                java.util.List.of("Unsupported request content type.")));
+    }
+
     @PostMapping(value = "/sign_in", consumes = "application/json")
-    public Map<String, Object> signIn(
-            @RequestBody(required = false) Login login, HttpServletRequest request) {
+    public Map<String, Object> signIn(@RequestBody Login login, HttpServletRequest request) {
         var result =
                 runtime.signIn()
                         .signIn(
@@ -144,12 +238,30 @@ public final class OgiriEndpoints {
         }
     }
 
-    public static OgiriAuthentication current(
+    private static OgiriAuthentication current(
             Authentication authentication, int status, String message) {
         if (authentication instanceof OgiriAuthentication current && current.isAuthenticated()) {
             return current;
         }
         throw new DtaFailure(status, message);
+    }
+
+    @ExceptionHandler({
+        org.springframework.http.converter.HttpMessageNotReadableException.class,
+        org.springframework.web.HttpMediaTypeNotSupportedException.class
+    })
+    public ResponseEntity<Map<String, Object>> invalidSignInBody(Exception failure) {
+        int status =
+                failure instanceof org.springframework.web.HttpMediaTypeNotSupportedException
+                        ? 415
+                        : 400;
+        return ResponseEntity.status(status)
+                .body(
+                        Map.of(
+                                "success",
+                                false,
+                                "errors",
+                                java.util.List.of("Invalid request body.")));
     }
 
     @ExceptionHandler(DtaFailure.class)

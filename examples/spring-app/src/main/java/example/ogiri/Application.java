@@ -25,6 +25,18 @@ public class Application {
     }
 
     @Bean
+    org.springframework.web.cors.UrlBasedCorsConfigurationSource corsConfigurationSource() {
+        var cors = new org.springframework.web.cors.CorsConfiguration();
+        cors.setAllowedOriginPatterns(List.of("*"));
+        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        cors.setAllowedHeaders(List.of("*"));
+        com.quantipixels.ogiri.security.OgiriConfigurer.exposeHeaders(cors);
+        var source = new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", cors);
+        return source;
+    }
+
+    @Bean
     OgiriAuthorities roles() {
         return attributes ->
                 List.of(

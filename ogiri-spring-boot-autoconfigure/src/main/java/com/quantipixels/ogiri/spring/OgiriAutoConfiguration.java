@@ -109,7 +109,11 @@ public final class OgiriAutoConfiguration {
             AuthTransactions transactions,
             OgiriProperties properties,
             OgiriAuthorities authorities) {
-        return new JdbcDeviseAccountStore(transactions, properties.account().table(), authorities);
+        return new JdbcDeviseAccountStore(
+                transactions,
+                properties.account().table(),
+                authorities,
+                properties.account().columns());
     }
 
     @Bean
@@ -121,6 +125,33 @@ public final class OgiriAutoConfiguration {
             OgiriSettings settings,
             com.quantipixels.ogiri.account.OgiriPasswords passwords) {
         return new SignInService(accounts, transactions, sessions, settings, passwords.encoder());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(jakarta.validation.Validator.class)
+    org.springframework.validation.beanvalidation.LocalValidatorFactoryBean ogiriBeanValidation() {
+        return new org.springframework.validation.beanvalidation.LocalValidatorFactoryBean();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    com.quantipixels.ogiri.account.AccountValidator ogiriAccountValidator(
+            jakarta.validation.Validator validator) {
+        return new com.quantipixels.ogiri.account.AccountValidator(validator);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    com.quantipixels.ogiri.account.RegistrationService ogiriRegistration(
+            AccountStore accounts,
+            AuthTransactions transactions,
+            JdbcSessions sessions,
+            OgiriSettings settings,
+            com.quantipixels.ogiri.account.OgiriPasswords passwords,
+            SignInService signIn,
+            com.quantipixels.ogiri.account.AccountValidator validator) {
+        return new com.quantipixels.ogiri.account.RegistrationService(
+                accounts, transactions, sessions, settings, passwords.encoder(), signIn, validator);
     }
 
     @Bean
@@ -166,8 +197,9 @@ public final class OgiriAutoConfiguration {
             name = "enabled",
             havingValue = "true",
             matchIfMissing = true)
-    OgiriEndpoints ogiriEndpoints(OgiriRuntime runtime) {
-        return new OgiriEndpoints(runtime);
+    OgiriEndpoints ogiriEndpoints(
+            OgiriRuntime runtime, com.quantipixels.ogiri.account.RegistrationService registration) {
+        return new OgiriEndpoints(runtime, registration);
     }
 
     @Bean

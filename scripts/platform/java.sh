@@ -17,7 +17,7 @@ schemas() {
 }
 
 stage() {
-python3 - <<'PY'
+    python3 - <<'PY'
 from pathlib import Path
 import shutil
 import xml.etree.ElementTree as ET
@@ -46,8 +46,14 @@ print('consumer: project artifacts staged; no mvn install')
 PY
 }
 
-verify() { schemas; "${maven[@]}" verify "$@"; }
-consumer_check() { stage; "${maven[@]}" "${consumer[@]}" -Pmysql -Dogiri.excludedGroups= verify; }
+verify() {
+    schemas
+    "${maven[@]}" verify "$@"
+}
+consumer_check() {
+    stage
+    "${maven[@]}" "${consumer[@]}" -Pmysql -Dogiri.excludedGroups= verify
+}
 sbom() {
     stage
     "${maven[@]}" org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom -DincludeTestScope=false
@@ -61,13 +67,36 @@ release() {
 }
 case "$mode" in
 check) verify ;;
-ci) verify -Dogiri.excludedGroups=; consumer_check ;;
-full) verify -Dogiri.excludedGroups=; consumer_check; sbom; release ;;
+ci)
+    verify -Dogiri.excludedGroups=
+    consumer_check
+    ;;
+full)
+    verify -Dogiri.excludedGroups=
+    consumer_check
+    sbom
+    release
+    ;;
+sample)
+    stage
+    "${maven[@]}" "${consumer[@]}" -DskipTests verify spring-boot:repackage
+    ;;
 sbom) sbom ;;
 release) release ;;
 benchmark) "${maven[@]}" -pl ogiri org.codehaus.mojo:exec-maven-plugin:3.5.0:java -Dexec.mainClass=com.quantipixels.ogiri.JdbcSessionsBenchmark -Dexec.classpathScope=test ;;
-codeql) verify -Dmaven.test.skip=true -Dmaven.javadoc.skip=true; stage; "${maven[@]}" "${consumer[@]}" -Dmaven.test.skip=true verify ;;
+codeql)
+    verify -Dmaven.test.skip=true -Dmaven.javadoc.skip=true
+    stage
+    "${maven[@]}" "${consumer[@]}" -Dmaven.test.skip=true verify
+    ;;
 staged) "${maven[@]}" spotless:check checkstyle:check ;;
-fix) "${maven[@]}" spotless:apply; stage; "${maven[@]}" "${consumer[@]}" spotless:apply ;;
-*) echo "unknown Java task: $mode" >&2; exit 2 ;;
+fix)
+    "${maven[@]}" spotless:apply
+    stage
+    "${maven[@]}" "${consumer[@]}" spotless:apply
+    ;;
+*)
+    echo "unknown Java task: $mode" >&2
+    exit 2
+    ;;
 esac

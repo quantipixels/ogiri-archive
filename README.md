@@ -1,14 +1,18 @@
 # Ogiri 0.0.1
 
-Ogiri provides opaque server-side sessions with immediate revocation. Each platform implements the [shared protocol](contracts/PROTOCOL.md).
+Ogiri provides opaque bearer sessions: no JWTs, no cookies, and immediate server-side revocation. Every authenticated request checks the stored session. Keep your accounts and authorization rules; Ogiri handles the session lifecycle.
 
 ## One protocol, three implementations
 
 | Implementation | Location |
 | --- | --- |
-| Spring Boot | [`ogiri`](ogiri/), [`ogiri-spring-boot-autoconfigure`](ogiri-spring-boot-autoconfigure/), [`ogiri-spring-boot-starter`](ogiri-spring-boot-starter/) |
-| FastAPI | [`packages/python`](packages/python/README.md) |
-| Phoenix | [`packages/elixir`](packages/elixir/README.md) |
+| Spring Boot | This repo's Maven modules: [`ogiri`](ogiri/) [`ogiri-spring-boot-autoconfigure`](ogiri-spring-boot-autoconfigure/), and [`ogiri-spring-boot-starter`](ogiri-spring-boot-starter/) |
+| FastAPI | [`packages/python`](packages/python/README.md) (being built) |
+| Phoenix | [`packages/elixir`](packages/elixir/README.md) (being built) |
+
+All three follow the [shared protocol](contracts/PROTOCOL.md) and [HTTP conformance suite](contracts/conformance/check.py). The Spring modules support **Spring Boot 4.1 / Java 17+**, with **PostgreSQL and MySQL 8+**.
+
+This is a new, unpublished prototype API and schema. Earlier v3/v4 credentials and database layouts are incompatible; use the application-owned migration and require existing users to sign in again.
 
 The Spring prototype currently implements sign-in, sign-out, validation, devices, registration, account updates and deletion. Configuration requiring unfinished rotation, confirmation, lockout or scheduled cleanup fails startup explicitly. See the [Spring architecture](docs/architecture/spring.md).
 
@@ -85,7 +89,7 @@ SecurityFilterChain security(HttpSecurity http, OgiriRuntime runtime) throws Exc
 }
 ```
 
-The configurer installs the dedicated DTA converter/provider/filter, error handlers, request-attribute context and response header writer. Authorization remains the application's responsibility. Public auth workflows ignore stale or malformed credentials. Invalid credentials become anonymous; storage outages return the protocol 503 body. The provider bean may join Spring's global AuthenticationManager assembly; the Ogiri filter uses its dedicated typed resolver. Multiple PlatformTransactionManager beans require an explicitly selected AuthTransactions bean for Ogiri's DataSource. A mismatched JDBC or JPA resource fails startup.
+The configurer installs the dedicated DTA converter/provider/filter, error handlers, request-attribute context and response header writer. Authorization remains the application's responsibility. Public auth workflows ignore stale or malformed credentials. Invalid credentials become anonymous; storage outages return the protocol 503 body. The default provider and password policy stay inside Ogiri's dedicated resolver and workflows, preserving host Basic authentication. Requests carrying both an existing identity and Ogiri credentials are rejected. Multiple PlatformTransactionManager beans require an explicitly selected AuthTransactions bean for Ogiri's DataSource. A mismatched JDBC or JPA resource fails startup.
 
 Every authentication reads the primary database and current account state. Mutations commit independently of surrounding application transactions; reads suspend their snapshots. Ordinary calls support a one-connection pool; an outer transaction holding a connection needs spare capacity. Cleanup is bounded with SKIP LOCKED and does not determine authentication expiry.
 
