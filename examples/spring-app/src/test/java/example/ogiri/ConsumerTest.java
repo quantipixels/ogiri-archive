@@ -22,7 +22,8 @@ import tools.jackson.databind.json.JsonMapper;
             "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
             "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
             "spring.datasource.hikari.maximum-pool-size=1",
-            "spring.profiles.active=demo"
+            "spring.profiles.active=demo",
+            "ogiri.account.columns=role"
         })
 class ConsumerTest {
     @Value("${local.server.port}")

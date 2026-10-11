@@ -202,7 +202,8 @@ public final class OgiriEndpoints {
                             credentials.token(),
                             credentials.client(),
                             account.uid(),
-                            credentials.expiry()));
+                            credentials.expiry(),
+                            credentials.batch()));
         return Map.of("status", "success", "data", account.view(false));
     }
 

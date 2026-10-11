@@ -6,7 +6,12 @@ import com.quantipixels.ogiri.Session;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
 
-public record ResponseCredentials(String token, String client, String uid, String expiry) {
+public record ResponseCredentials(
+        String token, String client, String uid, String expiry, boolean batch) {
+    public ResponseCredentials(String token, String client, String uid, String expiry) {
+        this(token, client, uid, expiry, false);
+    }
+
     public static final String ATTRIBUTE = ResponseCredentials.class.getName();
 
     public static void issued(HttpServletRequest request, IssuedSession issued, String uid) {
@@ -22,6 +27,14 @@ public record ResponseCredentials(String token, String client, String uid, Strin
     }
 
     public Map<String, String> headers() {
+        if (!batch) return authorizationHeaders();
+        var headers = new java.util.LinkedHashMap<>(authorizationHeaders());
+        headers.put("access-token", " ");
+        headers.put("expiry", " ");
+        return Map.copyOf(headers);
+    }
+
+    public Map<String, String> authorizationHeaders() {
         return Map.of(
                 "access-token",
                 token,

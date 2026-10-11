@@ -102,7 +102,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
         jdbc.update(
                 "INSERT INTO ogiri_sessions ("
                         + COLUMNS
-                        + ", token_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        + ", token_hash, rotated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 session.id().toString(),
                 subject.realm(),
                 subject.tenantId(),
@@ -110,7 +110,8 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
                 client,
                 now,
                 session.expiresAt().toEpochMilli(),
-                Tokens.digest(token));
+                Tokens.digest(token),
+                now);
         return new IssuedSession(session, token);
     }
 

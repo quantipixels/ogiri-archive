@@ -86,10 +86,12 @@ public final class OgiriAuthenticationFilter extends OncePerRequestFilter {
             context.setAuthentication(authentication);
             request.setAttribute(
                     ResponseCredentials.ATTRIBUTE,
-                    ResponseCredentials.of(
-                            authentication.session(),
-                            ((DtaAuthenticationToken) candidate).getCredentials().token(),
-                            authentication.getPrincipal().uid()));
+                    authentication.responseCredentials() != null
+                            ? authentication.responseCredentials()
+                            : ResponseCredentials.of(
+                                    authentication.session(),
+                                    ((DtaAuthenticationToken) candidate).getCredentials().token(),
+                                    authentication.getPrincipal().uid()));
             if (runtime.settings().cookieEnabled()
                     && request.getAttribute(CsrfToken.class.getName()) instanceof CsrfToken csrf) {
                 csrf.getToken();

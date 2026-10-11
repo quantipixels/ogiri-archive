@@ -44,3 +44,5 @@ curl -i -X DELETE "$BASE_URL/auth/sign_out" \
 DTA clients replay **access-token/client/uid**. **Authorization: Bearer base64(JSON)** is an alternative encoding of those credentials, not a JWT; the response provides a complete header ready to replay. No X-Requested-With header is required. Sign-in returns an account JSON object and credentials in headers, rather than session metadata in the body.
 
 The sample implements the [runner environment interface](../../contracts/conformance/README.md#sample-env-interface). MySQL consumer proof uses its JDBC URL and `OGIRI_TEST_DATABASE=mysql`; the current parity runner's database mutation adapter supports PostgreSQL. The library/sample manage Jackson 3.1.7 and Tomcat 11.0.26, and the SBOM gate scans both resolved graphs.
+
+Account views use the protocol default allowlist. Set `OGIRI_ACCOUNT_VIEW_FIELDS=role` to expose the fixture role explicitly; authority mapping always reads it independently.

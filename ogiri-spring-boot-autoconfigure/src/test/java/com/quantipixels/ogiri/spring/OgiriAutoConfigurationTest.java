@@ -120,8 +120,6 @@ class OgiriAutoConfigurationTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({
-        "ogiri.change-headers-on-each-request=true,Ogiri rotation is not implemented in this checkpoint",
-        "ogiri.batch-request-buffer-throttle=10s,Ogiri rotation is not implemented in this checkpoint",
         "ogiri.cookie-enabled=true,Ogiri cookie login CSRF is not implemented in this checkpoint",
         "ogiri.cleanup.interval=1m,Ogiri scheduled cleanup is not implemented in this checkpoint"
     })

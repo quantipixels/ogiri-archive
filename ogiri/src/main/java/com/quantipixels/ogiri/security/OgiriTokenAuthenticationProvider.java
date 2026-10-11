@@ -30,6 +30,7 @@ public final class OgiriTokenAuthenticationProvider implements AuthenticationPro
     @Override
     public Authentication authenticate(Authentication authentication) {
         DtaCredential credentials = ((DtaAuthenticationToken) authentication).getCredentials();
+        if (settings.changeHeadersOnEachRequest()) return rotated(credentials);
         return transactions.read(
                 () -> {
                     var account = accounts.findByUid(credentials.uid());
@@ -51,6 +52,49 @@ public final class OgiriTokenAuthenticationProvider implements AuthenticationPro
                         throw new BadCredentialsException("Invalid DTA credentials");
                     }
                     return new OgiriAuthentication(account.orElseThrow(), session.orElseThrow());
+                });
+    }
+
+    private Authentication rotated(DtaCredential credentials) {
+        return transactions.write(
+                () -> {
+                    var candidate = accounts.findByUid(credentials.uid());
+                    var subject =
+                            new Subject(
+                                    settings.realm(),
+                                    "",
+                                    candidate.map(a -> a.id()).orElse("__ogiri_missing__"));
+                    transactions.lock(subject);
+                    var account = accounts.lock(candidate.map(a -> a.id()).orElse("-1"));
+                    String client =
+                            credentials.client().length() > 64
+                                    ? "__invalid_client__"
+                                    : credentials.client();
+                    var result =
+                            new com.quantipixels.ogiri.internal.ClientRotation(transactions)
+                                    .authenticateLocked(
+                                            subject,
+                                            client,
+                                            credentials.token(),
+                                            settings.batchRequestBufferThrottle(),
+                                            settings.tokenLifespan());
+                    if (account.isEmpty()
+                            || result.isEmpty()
+                            || credentials.client().length() > 64
+                            || !account.orElseThrow().uid().equals(credentials.uid())
+                            || !account.orElseThrow().active(settings, transactions.now()))
+                        throw new BadCredentialsException("Invalid DTA credentials");
+                    var rotated = result.orElseThrow();
+                    var headers =
+                            new ResponseCredentials(
+                                    rotated.token(),
+                                    client,
+                                    account.orElseThrow().uid(),
+                                    Long.toString(
+                                            rotated.session().expiresAt().toEpochMilli() / 1000),
+                                    rotated.batch());
+                    return new OgiriAuthentication(
+                            account.orElseThrow(), rotated.session(), headers);
                 });
     }
 

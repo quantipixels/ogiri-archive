@@ -53,10 +53,6 @@ public final class OgiriAutoConfiguration {
     @ConditionalOnMissingBean
     OgiriSettings ogiriSettings(OgiriProperties properties) {
         var settings = properties.settings();
-        if (settings.changeHeadersOnEachRequest()
-                || !settings.batchRequestBufferThrottle().equals(java.time.Duration.ofSeconds(5)))
-            throw new IllegalStateException("Ogiri rotation is not implemented in this checkpoint");
-
         if (settings.cookieEnabled())
             throw new IllegalStateException(
                     "Ogiri cookie login CSRF is not implemented in this checkpoint");
