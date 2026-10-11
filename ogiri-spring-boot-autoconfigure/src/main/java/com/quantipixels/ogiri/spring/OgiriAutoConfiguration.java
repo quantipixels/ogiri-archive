@@ -1,0 +1,176 @@
+// SPDX-License-Identifier: Apache-2.0
+package com.quantipixels.ogiri.spring;
+
+import com.quantipixels.ogiri.AuthTransactions;
+import com.quantipixels.ogiri.JdbcSessions;
+import com.quantipixels.ogiri.SessionPolicy;
+import com.quantipixels.ogiri.account.AccountStore;
+import com.quantipixels.ogiri.account.DevisePasswordEncoder;
+import com.quantipixels.ogiri.account.JdbcDeviseAccountStore;
+import com.quantipixels.ogiri.account.OgiriAuthorities;
+import com.quantipixels.ogiri.account.OgiriSettings;
+import com.quantipixels.ogiri.account.SignInService;
+import com.quantipixels.ogiri.security.OgiriConfigurer;
+import com.quantipixels.ogiri.security.OgiriRuntime;
+import com.quantipixels.ogiri.web.OgiriEndpoints;
+import javax.sql.DataSource;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.transaction.PlatformTransactionManager;
+
+@AutoConfiguration(
+        afterName = {
+            "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+            "org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration",
+            "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
+        },
+        beforeName = {
+            "org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration",
+            "org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration"
+        })
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+@ConditionalOnBean(DataSource.class)
+@ConditionalOnProperty(
+        prefix = "ogiri",
+        name = "enabled",
+        havingValue = "true",
+        matchIfMissing = true)
+@EnableConfigurationProperties(OgiriProperties.class)
+@EnableWebSecurity
+public final class OgiriAutoConfiguration {
+    @Bean
+    @ConditionalOnMissingBean
+    OgiriSettings ogiriSettings(OgiriProperties properties) {
+        return properties.settings();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    AuthTransactions ogiriTransactions(
+            DataSource source, ObjectProvider<PlatformTransactionManager> managers) {
+        var available = managers.orderedStream().toList();
+        if (available.size() > 1) {
+            throw new IllegalStateException(
+                    "Multiple transaction managers found; provide an AuthTransactions bean for Ogiri's DataSource");
+        }
+        return available.isEmpty()
+                ? new AuthTransactions(source)
+                : new AuthTransactions(source, available.get(0));
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    JdbcSessions ogiriSessions(AuthTransactions transactions, OgiriSettings settings) {
+        return new JdbcSessions(
+                transactions,
+                new SessionPolicy(settings.tokenLifespan(), settings.maxNumberOfDevices()));
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    DevisePasswordEncoder ogiriPasswordEncoder() {
+        return new DevisePasswordEncoder();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    OgiriAuthorities ogiriAuthorities() {
+        return columns -> java.util.List.of();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(AccountStore.class)
+    AccountStore ogiriAccountStore(
+            AuthTransactions transactions,
+            OgiriProperties properties,
+            OgiriAuthorities authorities) {
+        return new JdbcDeviseAccountStore(transactions, properties.account().table(), authorities);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    SignInService ogiriSignIn(
+            AccountStore accounts,
+            AuthTransactions transactions,
+            JdbcSessions sessions,
+            OgiriSettings settings,
+            DevisePasswordEncoder passwords) {
+        return new SignInService(accounts, transactions, sessions, settings, passwords);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider ogiriTokenProvider(
+            AccountStore accounts,
+            AuthTransactions transactions,
+            JdbcSessions sessions,
+            OgiriSettings settings) {
+        return new com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider(
+                accounts, transactions, sessions, settings);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(
+            org.springframework.security.authentication.AuthenticationManagerResolver.class)
+    org.springframework.security.authentication.AuthenticationManagerResolver<
+                    jakarta.servlet.http.HttpServletRequest>
+            ogiriAuthenticationManagers(
+                    com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider provider) {
+        var manager = new org.springframework.security.authentication.ProviderManager(provider);
+        return request -> manager;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    OgiriRuntime ogiriRuntime(
+            OgiriSettings settings,
+            AuthTransactions transactions,
+            JdbcSessions sessions,
+            AccountStore accounts,
+            SignInService signIn,
+            org.springframework.security.authentication.AuthenticationManagerResolver<
+                            jakarta.servlet.http.HttpServletRequest>
+                    managers) {
+        return new OgiriRuntime(settings, transactions, sessions, accounts, signIn, managers);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(
+            prefix = "ogiri.endpoints",
+            name = "enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    OgiriEndpoints ogiriEndpoints(OgiriRuntime runtime) {
+        return new OgiriEndpoints(runtime);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(SecurityFilterChain.class)
+    SecurityFilterChain ogiriSecurityFilterChain(HttpSecurity http, OgiriRuntime runtime)
+            throws Exception {
+        http.with(OgiriConfigurer.ogiri(runtime), config -> {});
+        return http.authorizeHttpRequests(
+                        routes ->
+                                routes.dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR)
+                                        .permitAll()
+                                        .requestMatchers(
+                                                request ->
+                                                        OgiriConfigurer.endpoint(
+                                                                request,
+                                                                runtime.settings().basePath()))
+                                        .permitAll()
+                                        .anyRequest()
+                                        .authenticated())
+                .build();
+    }
+}

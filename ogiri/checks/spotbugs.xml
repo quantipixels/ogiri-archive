@@ -1,0 +1,10 @@
+<FindBugsFilter>
+<!-- These classes retain injected, thread-safe Spring infrastructure; copying it would break transaction participation. -->
+<Match><Class name="~com\.quantipixels\.ogiri\.(AuthTransactions|JdbcSessions|account\.SignInService|security\.OgiriRuntime|security\.OgiriTokenAuthenticationProvider)"/><Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/></Match>
+<!-- SQL text consists only of private fixed dialect/owner fragments. All values are bound parameters. -->
+<Match><Class name="~com\.quantipixels\.ogiri\.(AuthTransactions|JdbcSessions)"/><Bug pattern="SQL_INJECTION_SPRING_JDBC"/></Match>
+<!-- Adapter validates table/column identifiers against a literal identifier grammar; predicates are private fixed strings or the three allowlisted token columns. Values are bound. -->
+<Match><Class name="com.quantipixels.ogiri.account.JdbcDeviseAccountStore"/><Bug pattern="SQL_INJECTION_SPRING_JDBC"/></Match>
+<!-- The response is application/json, produced by Jackson from fixed DTA envelopes; no HTML template or raw input is written. -->
+<Match><Class name="com.quantipixels.ogiri.security.DtaErrors"/><Method name="write"/><Bug pattern="XSS_SERVLET"/></Match>
+</FindBugsFilter>

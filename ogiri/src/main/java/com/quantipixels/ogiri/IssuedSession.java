@@ -2,7 +2,9 @@
 // Copyright (c) 2026 Quanti Pixels
 package com.quantipixels.ogiri;
 
-/** An issuance result. Explicitly deliver token() once over TLS; never serialize or log this object. */
+/**
+ * An issuance result. Explicitly deliver token() once over TLS; never serialize or log this object.
+ */
 public final class IssuedSession {
     private final Session session;
     private final String token;
@@ -12,8 +14,16 @@ public final class IssuedSession {
         this.token = token;
     }
 
-    public Session session() { return session; }
-    public String token() { return token; }
+    public Session session() {
+        return session;
+    }
 
-    @Override public String toString() { return "IssuedSession[id=" + session.id() + ", token=<redacted>]"; }
+    public String token() {
+        return token;
+    }
+
+    @Override
+    public String toString() {
+        return "IssuedSession[id=" + session.id() + ", token=<redacted>]";
+    }
 }
