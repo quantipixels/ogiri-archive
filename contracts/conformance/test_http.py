@@ -1,4 +1,4 @@
-"""Wire parity: test names cite contract rev 2.1 behaviour ids."""
+"""Wire parity: test names cite contract rev 3.0 behaviour ids."""
 
 import base64
 import hashlib
@@ -37,7 +37,8 @@ def test_H1_token_format(api: API, settings: Settings) -> None:
     response = api.signin()
     assert response.status_code == 200
     auth_headers(response, settings)
-    assert re.fullmatch(r"[A-Za-z0-9_-]{22}", response.headers["access-token"])
+    size = 22 if settings.reference else 43
+    assert re.fullmatch(r"[A-Za-z0-9_-]{" + str(size) + "}", response.headers["access-token"])
     assert response.headers["access-token"] not in response.text
 
 
@@ -115,8 +116,8 @@ def test_H4_headers_bearer_cors_and_cache(api: API, settings: Settings) -> None:
         h.strip().lower() for h in current.headers["access-control-expose-headers"].split(",")
     }
     assert {h.lower() for h in AUTH_KEYS} <= exposed
-    # Native Rails/DTA has this Rails cache policy, rather than PROTOCOL no-store.
-    assert current.headers["cache-control"] == "max-age=0, private, must-revalidate"
+    expected = "max-age=0, private, must-revalidate" if settings.reference else "no-store"
+    assert current.headers["cache-control"] == expected
 
 
 @pytest.mark.profiles("default", "strict", "reset-token", "cookie")
@@ -144,6 +145,10 @@ def test_H5_rotation_batch_buffer(api: API, settings: Settings) -> None:
     initial_batch = api.request("GET", "/me", headers=original)
     assert initial_batch.status_code == 200
     auth_headers(initial_batch, settings, batch=True)
+    # The HTTP parser removes optional whitespace; inspect actual bytes for H5's single space.
+    wire = api.wire_batch_headers(original)
+    assert wire["access-token"] == b" "
+    assert wire["expiry"] == b" "
     time.sleep(float(settings.env["OGIRI_BATCH_REQUEST_BUFFER_THROTTLE_SECONDS"]) + 0.15)
     rotated = api.request("GET", "/me", headers=original)
     assert rotated.status_code == 200
@@ -174,7 +179,8 @@ def test_H6_device_cap_removes_earliest_expiry(api: API, db: Database, settings:
 def test_H6_concurrent_signin_cap(api: API, settings: Settings, db: Database) -> None:
     maximum = int(settings.env["OGIRI_MAX_NUMBER_OF_DEVICES"])
     with ThreadPoolExecutor(max_workers=4) as pool:
-        responses = list(pool.map(lambda _: api.signin(), range(maximum + 3)))
+        futures = [pool.submit(api.signin) for _ in range(maximum + 3)]
+        responses = [future.result(timeout=30) for future in futures]
     assert all(r.status_code == 200 for r in responses)
     if settings.reference:
         count = db.one(
@@ -199,11 +205,16 @@ def test_H7_token_lifespan(api: API, db: Database, settings: Settings) -> None:
     assert 0 <= expiry - now - int(settings.env["OGIRI_TOKEN_LIFESPAN_SECONDS"]) <= 3
 
 
-def test_H8_protection_and_roles(api: API) -> None:
+def test_H8_protection_and_roles(api: API, settings: Settings) -> None:
     anonymous = api.request("GET", "/me")
     assert anonymous.status_code == 401
     assert anonymous.json() == {"errors": ["You need to sign in or sign up before continuing."]}
-    assert api.request("GET", "/admin", headers=api.login()).status_code == 403
+    denied = api.request("GET", "/admin", headers=api.login())
+    assert denied.status_code == 403
+    if settings.reference:
+        assert denied.content == b""
+    else:
+        assert denied.json() == {"errors": ["You are not authorized to access this resource."]}
     assert api.request("GET", "/admin", headers=api.login("admin@example.com")).json() == {
         "uid": "admin@example.com"
     }
@@ -269,7 +280,7 @@ def test_S6_signout_only_one_client(api: API) -> None:
     response = api.request("DELETE", "/auth/sign_out", headers=first)
     assert response.status_code == 200
     assert response.json() == {"success": True}
-    assert "access-token" not in response.headers
+    assert not (set(response.headers) & (AUTH_KEYS | {"authorization"}))
     assert api.request("GET", "/me", headers=first).status_code == 401
     assert api.request("GET", "/me", headers=other).status_code == 200
 
@@ -461,10 +472,17 @@ def test_R6_password_update_default_needs_no_current_password(api: API, settings
         assert api.signin(password="changed-password").status_code == 200
 
 
-def test_R7_wrong_current_password(api: API) -> None:
+def test_R7_wrong_current_password(api: API, settings: Settings) -> None:
     response = api.request(
         "PUT", "/auth", headers=api.login(), json={"name": "Changed", "current_password": "wrong"}
     )
+    if (
+        not settings.reference
+        and settings.env["OGIRI_CHECK_CURRENT_PASSWORD_BEFORE_UPDATE"] == "false"  # noqa: S105 -- setting enum
+    ):
+        assert response.status_code == 200, response.text
+        account(response, DEMO, full=True, name="Changed")
+        return
     assert response.status_code == 422
     assert response.json() == {
         "status": "error",
@@ -500,6 +518,7 @@ def test_R10_destroy_account_all_clients(api: API) -> None:
         "status": "success",
         "message": f"Account with UID '{DEMO}' has been destroyed.",
     }
+    assert not (set(response.headers) & (AUTH_KEYS | {"authorization"}))
     assert api.request("GET", "/me", headers=first).status_code == 401
     assert api.request("GET", "/me", headers=second).status_code == 401
 
@@ -519,6 +538,28 @@ def test_R11_reconfirmation(api: API, db: Database, mail: Mailbox, settings: Set
         db.one("SELECT unconfirmed_email FROM users WHERE email=%s", (DEMO,))
         == "changed@example.com"
     )
+    link = urlsplit(mail.link("changed@example.com", "Confirmation"))
+    confirmed = api.request(
+        "GET",
+        link.path + "?" + link.query,
+        params={**{k: v[0] for k, v in parse_qs(link.query).items()}, "redirect_url": REDIRECT},
+    )
+    assert redirect(confirmed) == {"account_confirmation_success": "true"}
+    assert api.signin("changed@example.com").status_code == 200
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.reference_only("D-B: R11/C1 nil URL crashes after successful reconfirmation")
+def test_R11_C1_reference_nil_redirect(
+    api: API, db: Database, mail: Mailbox, settings: Settings
+) -> None:
+    response = api.request(
+        "PUT",
+        "/auth",
+        headers=api.login(),
+        json={"email": "changed@example.com", "current_password": PASSWORD},
+    )
+    assert response.status_code == 200
     confirmed = mail.follow(api, "changed@example.com", "Confirmation")
     if settings.env["OGIRI_DEFAULT_CONFIRM_SUCCESS_URL"]:
         assert (
@@ -747,7 +788,7 @@ def test_P5_non_email_provider(api: API, db: Database) -> None:
 
 
 @pytest.mark.profiles("strict")
-def test_P6_remove_all_except_greatest_expiry(api: API, db: Database, mail: Mailbox) -> None:
+def test_P6_matching_expiry_and_recency(api: API, db: Database, mail: Mailbox) -> None:
     first = api.login()
     db.session_expiry(first, 60)
     second = api.login()
@@ -871,6 +912,7 @@ def test_U2_unlock_resend(api: API, mail: Mailbox, settings: Settings) -> None:
 
 
 @pytest.mark.profiles("strict")
+@pytest.mark.reference_only("D-B: Rails emits a malformed relative redirect")
 def test_U3_unlock_email_link(api: API, mail: Mailbox) -> None:
     assert (
         api.request("POST", "/auth/unlock", json={"email": "locked@example.com"}).status_code == 200
@@ -922,6 +964,7 @@ def test_E1_email_tokens_and_config(
 
 
 @pytest.mark.profiles("cookie")
+@pytest.mark.reference_only("D-K: Rails cookie sign-out requires no double-submit token")
 def test_K1_cookie_auth_and_signout(api: API, settings: Settings) -> None:
     response = api.signin()
     auth_headers(response, settings)
@@ -994,6 +1037,7 @@ def test_A3_views(api: API) -> None:
 @pytest.mark.parametrize(
     "field,value", [("locked_at", "2099-01-01 00:00:00"), ("confirmed_at", None)]
 )
+@pytest.mark.reference_only("D-L: Rails accepts inactive accounts' existing tokens")
 def test_A4_inactive_existing_tokens(api: API, db: Database, field: str, value: str | None) -> None:
     values = api.login()
     db.update(DEMO, **{field: value})
@@ -1061,6 +1105,7 @@ def test_D3_revoke_all(api: API) -> None:
     first, second, other = api.login(), api.login(), api.login("admin@example.com")
     response = api.request("DELETE", "/auth/sessions", headers=first)
     assert response.status_code == 200 and response.json() == {"success": True}
+    assert not (set(response.headers) & (AUTH_KEYS | {"authorization"}))
     assert api.request("GET", "/me", headers=first).status_code == 401
     assert api.request("GET", "/me", headers=second).status_code == 401
     assert api.request("GET", "/me", headers=other).status_code == 200
@@ -1093,7 +1138,7 @@ def test_T2_committed_session_visible_to_second_connection(
         count = other.one(
             (
                 "SELECT count(*) FROM ogiri_sessions WHERE client=%s AND "
-                "created_at <= extract(epoch FROM clock_timestamp())::bigint"
+                "created_at <= floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint"
             ),
             (values["client"],),
         )
@@ -1105,6 +1150,7 @@ def test_T2_committed_session_visible_to_second_connection(
         other.close()
 
 
+@pytest.mark.reference_only("D-B: Rails crashes on Bearer JSON null")
 def test_H2_valid_json_non_object_raises_500(api: API) -> None:
     response = api.request("GET", "/me", headers={"Authorization": "Bearer bnVsbA=="})
     assert response.status_code == 500
@@ -1112,6 +1158,7 @@ def test_H2_valid_json_non_object_raises_500(api: API) -> None:
 
 
 @pytest.mark.profiles("default", "reset-token", "rotation", "cookie")
+@pytest.mark.reference_only("D-B: Rails crashes on current_password with default setting")
 def test_P5_current_password_with_default_update_raises_500(api: API) -> None:
     response = api.request(
         "PUT",
@@ -1131,6 +1178,14 @@ def test_P5_current_password_with_default_update_raises_500(api: API) -> None:
 def test_H5_rotation_slides_expiry(api: API, db: Database, settings: Settings) -> None:
     values = api.login()
     db.session_expiry(values, 60)
+    if not settings.reference:
+        # DTA's unbatch parameter is outside the Ogiri contract. Move the DB rotation clock.
+        buffer = int(settings.env["OGIRI_BATCH_REQUEST_BUFFER_THROTTLE_SECONDS"])
+        db.execute(
+            "UPDATE ogiri_sessions SET rotated_at=floor(extract(epoch FROM "
+            "clock_timestamp()) * 1000)::bigint - %s WHERE client=%s",
+            ((buffer + 1) * 1000, values["client"]),
+        )
     response = api.request("GET", "/me", headers=values, params={"unbatch": "true"})
     assert response.status_code == 200
     auth_headers(response, settings, batch=False)
@@ -1138,7 +1193,7 @@ def test_H5_rotation_slides_expiry(api: API, db: Database, settings: Settings) -
     assert int(response.headers["expiry"]) - now >= 1209595
 
 
-def test_H8_store_outage_fails_closed(api: API, settings: Settings) -> None:
+def check_store_outage(api: API, settings: Settings) -> None:
     name = settings.database_container
     if not name:
         pytest.skip("H8 store-outage injection requires runner-owned --database-container")
@@ -1151,9 +1206,11 @@ def test_H8_store_outage_fails_closed(api: API, settings: Settings) -> None:
             [docker, "stop", name], check=True, capture_output=True, timeout=30
         )
         response = api.request("GET", "/me", headers=values)
-        # Rails/DTA has no store-outage translation to the contract's 503.
-        assert response.status_code == 500
-        assert response.content == b""
+        if settings.reference:
+            assert response.status_code == 500
+            assert response.content == b""
+        else:
+            error(response, 503, "Authentication service unavailable.")
     finally:
         subprocess.run(  # noqa: S603
             [docker, "start", name], check=True, capture_output=True, timeout=30
@@ -1174,6 +1231,7 @@ def test_A2_migrated_bcrypt_prefixes(api: API, db: Database, prefix: str) -> Non
 
 @pytest.mark.profiles("strict")
 @pytest.mark.parametrize("kind", ["confirmation", "unlock"])
+@pytest.mark.reference_only("D-M / E1: Devise one-time token storage differs")
 def test_E1_confirmation_raw_and_unlock_digest(
     api: API, db: Database, mail: Mailbox, kind: str
 ) -> None:
@@ -1228,6 +1286,7 @@ def test_U1_success_resets_failed_attempts(api: API, db: Database) -> None:
 
 
 @pytest.mark.profiles("cookie")
+@pytest.mark.reference_only("H2/K1 cookie versus Bearer precedence is unspecified in rev 3")
 def test_K1_cookie_precedes_bearer(api: API) -> None:
     response = api.signin()
     cookie = next(
@@ -1275,11 +1334,12 @@ def test_C1_auth_headers_confirmation_does_not_issue_client(
     response = api.request("GET", link.path + "?" + link.query, headers=values)
     assert redirect(response) == {"account_confirmation_success": "true"}
     assert "access-token" not in response.headers
-    # The controller checks Warden signed_in?, not DTA token headers, before redirect.
+    # Neither backend issues a client for DTA token headers; C1 is public in rev 3.
     assert api.request("GET", "/me", headers=values).status_code == 200
 
 
 @pytest.mark.profiles("strict")
+@pytest.mark.reference_only("C1 allowlist contract question; Rails accepts disallowed URLs")
 def test_C1_confirmation_does_not_check_redirect_allowlist(api: API, mail: Mailbox) -> None:
     assert api.signup().status_code == 200
     link = urlsplit(mail.link("new@example.com", "Confirmation"))
@@ -1291,3 +1351,352 @@ def test_C1_confirmation_does_not_check_redirect_allowlist(api: API, mail: Mailb
     )
     assert response.status_code == 302
     assert response.headers["location"] == "https://evil.example/?account_confirmation_success=true"
+
+
+@pytest.mark.ogiri_only("D-T: H1 requires a 32-byte, 43-character access token")
+def test_H1_D_T_32_byte_token(api: API, settings: Settings) -> None:
+    response = api.signin()
+    auth_headers(response, settings)
+    raw = response.headers["access-token"]
+    assert re.fullmatch(r"[A-Za-z0-9_-]{43}", raw)
+    assert len(base64.urlsafe_b64decode(raw + "=")) == 32
+
+
+@pytest.mark.reference_only("D-Q: Rails accepts query and form credentials")
+def test_H2_reference_query_and_form_credentials(api: API) -> None:
+    values = api.login()
+    assert api.request("GET", "/me", params=values).json() == {"uid": DEMO}
+    assert api.request("DELETE", "/auth/sign_out", data=values).json() == {"success": True}
+
+
+@pytest.mark.ogiri_only("D-H: H4 requires Cache-Control no-store")
+def test_H4_D_H_no_store(api: API) -> None:
+    issued = api.signin()
+    current = api.request("GET", "/me", headers=credentials(issued))
+    assert current.status_code == 200
+    assert issued.headers["cache-control"] == "no-store"
+    assert current.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.ogiri_only("D-B: malformed Bearer JSON null is ignored under H2")
+def test_H2_D_B_json_null_ignored(api: API) -> None:
+    headers = {"Authorization": "Bearer bnVsbA=="}
+    response = api.request("GET", "/me", headers=headers)
+    assert response.status_code == 401
+    assert response.json() == {"errors": ["You need to sign in or sign up before continuing."]}
+    values = api.login()
+    assert api.request("GET", "/me", headers=headers | values).json() == {"uid": DEMO}
+
+
+@pytest.mark.profiles("default", "reset-token", "rotation", "cookie")
+@pytest.mark.ogiri_only("D-B: P4 ignores current_password with the default setting")
+@pytest.mark.parametrize("current", [PASSWORD, "wrong"])
+def test_P4_D_B_ignored_current_password(api: API, current: str) -> None:
+    response = api.request(
+        "PUT",
+        "/auth/password",
+        headers=api.login(),
+        json={
+            "password": "changed-password",
+            "password_confirmation": "changed-password",
+            "current_password": current,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["message"] == "Your password has been successfully updated."
+    account(response, DEMO, full=True)
+    assert api.signin(password="changed-password").status_code == 200
+
+
+@pytest.mark.profiles("default", "reset-token", "rotation", "cookie")
+@pytest.mark.ogiri_only("D-B / R6: rev 3 says supplied current_password is otherwise ignored")
+def test_R6_ignored_current_password_default(api: API) -> None:
+    response = api.request(
+        "PUT",
+        "/auth",
+        headers=api.login(),
+        json={"name": "Changed", "current_password": "wrong"},
+    )
+    assert response.status_code == 200, response.text
+    account(response, DEMO, full=True, name="Changed")
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-L: inactive accounts fail H3/A4 on the next request")
+@pytest.mark.parametrize(
+    "field,value", [("locked_at", "2099-01-01 00:00:00"), ("confirmed_at", None)]
+)
+def test_A4_D_L_inactive_tokens_rejected(
+    api: API, db: Database, field: str, value: str | None, settings: Settings
+) -> None:
+    values = api.login()
+    db.update(DEMO, **{field: value})
+    error(
+        api.request("GET", "/auth/validate_token", headers=values), 401, "Invalid login credentials"
+    )
+    response = api.request("GET", "/me", headers=values)
+    assert response.status_code == 401
+    assert response.json() == {"errors": ["You need to sign in or sign up before continuing."]}
+    if settings.peer_url:
+        peer = API(settings.peer_url)
+        try:
+            assert peer.request("GET", "/me", headers=values).status_code == 401
+        finally:
+            peer.close()
+
+
+@pytest.mark.ogiri_only("D-B / H8: store outages return the documented 503 JSON")
+def test_H8_D_B_store_outage(api: API, settings: Settings) -> None:
+    check_store_outage(api, settings)
+
+
+@pytest.mark.reference_only("D-B / H8: native Rails returns empty 500 on store outage")
+def test_H8_reference_store_outage(api: API, settings: Settings) -> None:
+    check_store_outage(api, settings)
+
+
+@pytest.mark.ogiri_only("D-B / H8: role failures return the documented 403 JSON")
+def test_H8_forbidden_body(api: API) -> None:
+    response = api.request("GET", "/admin", headers=api.login())
+    assert response.status_code == 403
+    assert response.json() == {"errors": ["You are not authorized to access this resource."]}
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-B: U3 redirects to a valid local root instead of DTA's malformed URL")
+def test_U3_D_B_valid_root_redirect(api: API, mail: Mailbox, db: Database) -> None:
+    assert (
+        api.request("POST", "/auth/unlock", json={"email": "locked@example.com"}).status_code == 200
+    )
+    link = urlsplit(mail.link("locked@example.com", "Unlock"))
+    response = api.request("GET", link.path + "?" + link.query)
+    location = response.headers["location"]
+    query = (
+        redirect(response, target=api.url + "/")
+        if location.startswith("http")
+        else redirect(response, target="/")
+    )
+    assert set(query) == {
+        "access-token",
+        "client",
+        "client_id",
+        "config",
+        "expiry",
+        "token",
+        "uid",
+        "unlock",
+    }
+    assert query["unlock"] == "true"
+    assert query["client"] == query["client_id"]
+    assert query["token"] == query["access-token"]
+    values = {k: query[k] for k in ("access-token", "client", "uid")}
+    assert api.request("GET", "/me", headers=values).json() == {"uid": "locked@example.com"}
+    assert db.one("SELECT locked_at FROM users WHERE email='locked@example.com'") is None
+    assert api.request("GET", "/auth/unlock", params={"unlock_token": "invalid"}).status_code == 404
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-C: C1 ignores absent, invalid, stale and valid request credentials")
+@pytest.mark.parametrize("kind", ["absent", "invalid", "stale", "valid"])
+def test_C1_D_C_credentials_never_issue_client(
+    api: API, db: Database, mail: Mailbox, kind: str
+) -> None:
+    values = api.login()
+    if kind == "stale":
+        assert api.request("DELETE", "/auth/sign_out", headers=values).status_code == 200
+    headers = {} if kind == "absent" else values
+    if kind == "invalid":
+        headers = values | {"access-token": "invalid"}
+    assert api.signup().status_code == 200
+    before = db.one("SELECT count(*) FROM ogiri_sessions")
+    link = urlsplit(mail.link("new@example.com", "Confirmation"))
+    response = api.request("GET", link.path + "?" + link.query, headers=headers)
+    assert redirect(response) == {"account_confirmation_success": "true"}
+    assert not (set(response.headers) & (AUTH_KEYS | {"authorization"}))
+    assert db.one("SELECT count(*) FROM ogiri_sessions") == before
+    assert db.one("SELECT confirmed_at FROM users WHERE email='new@example.com'") is not None
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-B: R11/C1 nil redirect requires a contract decision")
+def test_C1_D_B_nil_redirect_contract_question() -> None:
+    pytest.skip("Rev 3 specifies no valid-token result without a known redirect; report question")
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-C: C1 redirect allowlist requires a contract decision")
+def test_C1_redirect_allowlist_contract_question() -> None:
+    pytest.skip(
+        "Rev 3 does not settle C1 allowlist enforcement or its rejection body; report question"
+    )
+
+
+@pytest.mark.ogiri_only("D-M / E1: all new one-time tokens use 32 bytes and SHA-256 hex storage")
+@pytest.mark.parametrize("kind", ["password", "confirmation", "unlock"])
+def test_E1_ogiri_sha256_one_time_tokens(
+    api: API, db: Database, mail: Mailbox, settings: Settings, kind: str
+) -> None:
+    if kind != "password" and settings.profile != "strict":
+        pytest.skip("confirmation/unlock require strict profile")
+    if kind == "password":
+        link = urlsplit(reset_link(api, mail))
+        email, column = DEMO, "reset_password_token"
+    elif kind == "confirmation":
+        assert api.signup().status_code == 200
+        link = urlsplit(mail.link("new@example.com", "Confirmation"))
+        email, column = "new@example.com", "confirmation_token"
+    else:
+        email, column = "locked@example.com", "unlock_token"
+        assert api.request("POST", "/auth/unlock", json={"email": email}).status_code == 200
+        link = urlsplit(mail.link(email, "Unlock"))
+    raw = parse_qs(link.query)[column][0]
+    assert re.fullmatch(r"[A-Za-z0-9_-]{43}", raw)
+    assert len(base64.urlsafe_b64decode(raw + "=")) == 32
+    queries = {
+        "reset_password_token": "SELECT reset_password_token FROM users WHERE email=%s",
+        "confirmation_token": "SELECT confirmation_token FROM users WHERE email=%s",
+        "unlock_token": "SELECT unlock_token FROM users WHERE email=%s",
+    }
+    stored = db.one(queries[column], (email,))
+    assert stored == hashlib.sha256(raw.encode("ascii")).hexdigest()
+    if settings.peer_url:
+        peer = API(settings.peer_url)
+        try:
+            response = peer.request("GET", link.path + "?" + link.query)
+            assert response.status_code == 302
+        finally:
+            peer.close()
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-M: an in-flight Devise raw confirmation token is not an Ogiri digest")
+def test_E1_D_M_legacy_raw_confirmation_rejected(api: API, db: Database) -> None:
+    raw = "legacy-confirm-token"
+    db.update(DEMO, confirmed_at=None, confirmation_token=raw)
+    response = api.request(
+        "GET", "/auth/confirmation", params={"confirmation_token": raw, "redirect_url": REDIRECT}
+    )
+    assert redirect(response) == {"account_confirmation_success": "false"}
+    assert db.one("SELECT confirmed_at FROM users WHERE email=%s", (DEMO,)) is None
+
+
+@pytest.mark.profiles("cookie")
+@pytest.mark.ogiri_only("D-K: K1 cookie defaults and double-submit CSRF on unsafe cookie auth")
+def test_K1_D_K_cookie_defaults_and_csrf(api: API) -> None:
+    issued = api.signin()
+    cookies = issued.headers.get_list("set-cookie")
+    auth = next(c for c in cookies if c.startswith("auth_cookie="))
+    xsrf = next(c for c in cookies if c.startswith("XSRF-TOKEN="))
+    for attribute in ("httponly", "samesite=lax", "path=/"):
+        assert attribute in auth.lower()
+    assert "httponly" not in xsrf.lower()
+    cookie = auth.split(";", 1)[0] + "; " + xsrf.split(";", 1)[0]
+    assert api.request("GET", "/me", headers={"Cookie": cookie}).status_code == 200
+    for extra in ({}, {"X-XSRF-TOKEN": "wrong"}):
+        rejected = api.request("DELETE", "/auth/sign_out", headers={"Cookie": cookie} | extra)
+        assert 400 <= rejected.status_code < 500
+        assert api.request("GET", "/me", headers={"Cookie": cookie}).status_code == 200
+    value = unquote(xsrf.split(";", 1)[0].split("=", 1)[1])
+    signed_out = api.request(
+        "DELETE", "/auth/sign_out", headers={"Cookie": cookie, "X-XSRF-TOKEN": value}
+    )
+    assert signed_out.status_code == 200
+    assert signed_out.json() == {"success": True}
+    assert not (set(signed_out.headers) & (AUTH_KEYS | {"authorization"}))
+    deleted = next(
+        c for c in signed_out.headers.get_list("set-cookie") if c.startswith("auth_cookie=")
+    )
+    assert "max-age=0" in deleted.lower() or "expires=" in deleted.lower()
+    assert api.request("GET", "/me", headers={"Cookie": cookie}).status_code == 401
+    # Explicit auth headers select header authentication and never need CSRF.
+    headers = api.login()
+    assert api.request("DELETE", "/auth/sign_out", headers=headers).status_code == 200
+
+
+@pytest.mark.ogiri_only("D-S / H4: removing the current device ends its response session")
+def test_D2_current_client_has_no_auth_headers(api: API) -> None:
+    values = api.login()
+    response = api.request("DELETE", "/auth/sessions/" + values["client"], headers=values)
+    assert response.status_code == 200
+    assert response.json() == {"success": True}
+    assert not (set(response.headers) & (AUTH_KEYS | {"authorization"}))
+    assert api.request("GET", "/me", headers=values).status_code == 401
+
+
+@pytest.mark.ogiri_only("D-S / T5: session clocks are epoch milliseconds; wire expiry is seconds")
+def test_T5_epoch_ms_and_header_floor(api: API, db: Database, settings: Settings) -> None:
+    before = int(db.one("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)"))
+    issued = api.signin()
+    values = credentials(issued)
+    row = db.conn.execute(
+        "SELECT created_at, expires_at, rotated_at FROM ogiri_sessions WHERE client=%s",
+        (values["client"],),
+    ).fetchone()
+    assert row is not None
+    created, expires, rotated = row
+    after = int(db.one("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)"))
+    assert before <= created <= after
+    assert abs(expires - created - int(settings.env["OGIRI_TOKEN_LIFESPAN_SECONDS"]) * 1000) <= 3000
+    assert int(issued.headers["expiry"]) == expires // 1000
+    assert rotated is None or before <= rotated <= after
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-S / T5: P6 retains greatest (created_at, id), independent of expiry")
+@pytest.mark.parametrize("tie", [False, True])
+def test_P6_T5_recency_not_expiry(api: API, db: Database, mail: Mailbox, tie: bool) -> None:
+    first = api.login()
+    link = urlsplit(reset_link(api, mail))
+    query = redirect(api.request("GET", link.path + "?" + link.query))
+    last = {k: query[k] for k in ("access-token", "client", "uid")}
+    now = int(db.one("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)"))
+    if tie:
+        db.execute(
+            "UPDATE ogiri_sessions SET created_at=%s WHERE client IN (%s,%s)",
+            (now - 1000, first["client"], last["client"]),
+        )
+    else:
+        db.execute(
+            "UPDATE ogiri_sessions SET created_at=%s WHERE client=%s", (now - 2000, first["client"])
+        )
+        db.execute(
+            "UPDATE ogiri_sessions SET created_at=%s WHERE client=%s", (now - 1000, last["client"])
+        )
+    winner = str(
+        db.one("SELECT client FROM ogiri_sessions ORDER BY created_at DESC, id DESC LIMIT 1")
+    )
+    loser = last["client"] if winner == first["client"] else first["client"]
+    db.execute("UPDATE ogiri_sessions SET expires_at=%s WHERE client=%s", (now + 120000, winner))
+    db.execute("UPDATE ogiri_sessions SET expires_at=%s WHERE client=%s", (now + 240000, loser))
+    response = api.request(
+        "PUT",
+        "/auth/password",
+        headers=last,
+        json={"password": "changed-password", "password_confirmation": "changed-password"},
+    )
+    assert response.status_code == 200
+    assert db.one("SELECT count(*) FROM ogiri_sessions") == 1
+    assert db.one("SELECT client FROM ogiri_sessions") == winner
+    for values in (first, last):
+        assert api.request("GET", "/me", headers=values).status_code == (
+            200 if values["client"] == winner else 401
+        )
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.reference_only("D-S / T5: DTA retains greatest expiry rather than issuance order")
+def test_P6_reference_greatest_expiry_over_issuance(api: API, db: Database, mail: Mailbox) -> None:
+    first = api.login()
+    db.session_expiry(first, 2400000)
+    link = urlsplit(reset_link(api, mail))
+    query = redirect(api.request("GET", link.path + "?" + link.query))
+    last = {k: query[k] for k in ("access-token", "client", "uid")}
+    response = api.request(
+        "PUT",
+        "/auth/password",
+        headers=last,
+        json={"password": "changed-password", "password_confirmation": "changed-password"},
+    )
+    assert response.status_code == 200
+    assert api.request("GET", "/me", headers=first).status_code == 200
+    assert api.request("GET", "/me", headers=last).status_code == 401

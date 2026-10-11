@@ -1,13 +1,13 @@
 [project]
 name = "ogiri-parity-suite"
-version = "2.1.0"
+version = "3.0.0"
 requires-python = ">=3.12"
 dependencies = ["pytest>=8.3,<10", "httpx>=0.28,<1", "psycopg[binary]>=3.2,<4"]
 [dependency-groups]
 dev = ["ruff>=0.14", "pyright>=1.1.400"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
-markers = ["profiles(*names): supported profiles", "ogiri_only(reason): intentional divergence or extension", "protocol(id): protocol behaviour", "ac2: cross backend", "ac3: real JS client"]
+markers = ["profiles(*names): supported profiles", "ogiri_only(reason): intentional divergence or extension", "reference_only(reason): pinned Rails expectation", "protocol(id): protocol behaviour", "ac2: cross backend", "ac3: real JS client"]
 [tool.ruff]
 line-length = 100
 [tool.ruff.lint]
