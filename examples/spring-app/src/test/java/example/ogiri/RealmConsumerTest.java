@@ -155,6 +155,7 @@ class RealmConsumerTest {
     @Test
     void usersTokenCannotPatchOrDeleteAdminThroughHostChain() throws Exception {
         var identity = matchingIds();
+        var adminBefore = jdbc.queryForMap("SELECT * FROM admins WHERE id = ?", identity.id());
         for (String method : java.util.List.of("PATCH", "DELETE")) {
             var response =
                     request(
@@ -162,15 +163,23 @@ class RealmConsumerTest {
                             "/admin_auth",
                             method.equals("PATCH") ? Map.of("name", "taken-over") : null,
                             identity.authorization());
-            assertEquals(401, response.statusCode(), response.body());
+            assertEquals(404, response.statusCode(), response.body());
+            String message =
+                    method.equals("PATCH")
+                            ? "User not found."
+                            : "Unable to locate account for destruction.";
             assertEquals(
-                    identity.email(),
-                    jdbc.queryForObject(
-                            "SELECT email FROM admins WHERE id = ?", String.class, identity.id()));
+                    Map.of(
+                            "success",
+                            false,
+                            "status",
+                            "error",
+                            "errors",
+                            java.util.List.of(message)),
+                    JsonMapper.builder().build().readValue(response.body(), Map.class));
             assertEquals(
-                    null,
-                    jdbc.queryForObject(
-                            "SELECT name FROM admins WHERE id = ?", String.class, identity.id()));
+                    adminBefore,
+                    jdbc.queryForMap("SELECT * FROM admins WHERE id = ?", identity.id()));
         }
     }
 
@@ -278,6 +287,30 @@ class RealmConsumerTest {
         assertEquals(
                 200,
                 request("GET", "/auth/validate_token", null, ids.authorization()).statusCode());
+    }
+
+    @Test
+    void foreignTenantCannotOwnAccount() throws Exception {
+        var ids = matchingIds();
+        var realm = realms.defaultRealm();
+        var login = realm.signIn().signIn(ids.email(), "test-password");
+        var session = login.issued().session();
+        var foreign =
+                new com.quantipixels.ogiri.Session(
+                        session.id(),
+                        new com.quantipixels.ogiri.Subject(
+                                session.subject().realm(),
+                                "foreign-tenant",
+                                session.subject().subjectId()),
+                        session.client(),
+                        session.createdAt(),
+                        session.expiresAt());
+        realm.settings().requireOwner(login.account(), session);
+        var failure =
+                assertThrows(
+                        com.quantipixels.ogiri.DtaFailure.class,
+                        () -> realm.settings().requireOwner(login.account(), foreign));
+        assertEquals(401, failure.status());
     }
 
     private HttpResponse<String> signup(String path, String email) throws Exception {
