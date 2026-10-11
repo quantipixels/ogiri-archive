@@ -38,7 +38,9 @@ public record OgiriProperties(
         @DefaultValue({"name", "nickname", "image"}) List<String> permittedFields,
         @DefaultValue Account account,
         @DefaultValue Endpoints endpoints,
-        @DefaultValue Cleanup cleanup) {
+        @DefaultValue Cleanup cleanup,
+        @DefaultValue("") String publicBaseUrl,
+        @DefaultValue("no-reply@localhost") String mailFrom) {
     public OgiriProperties {
         redirectAllowlist = redirectAllowlist == null ? List.of() : List.copyOf(redirectAllowlist);
         permittedFields =

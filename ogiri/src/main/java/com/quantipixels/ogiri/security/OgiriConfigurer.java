@@ -119,6 +119,13 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
                 || ((path.equals(base) || path.equals(base + "/")) && method.equals("POST"));
     }
 
+    public static boolean tokenResetWorkflow(
+            HttpServletRequest request, com.quantipixels.ogiri.account.OgiriSettings settings) {
+        return settings.requireClientPasswordResetToken()
+                && path(request).equals(mount(request, settings.basePath()) + "/password")
+                && List.of("PUT", "PATCH").contains(request.getMethod());
+    }
+
     public static boolean endpoint(HttpServletRequest request, String base) {
         String mounted = mount(request, base);
         String path = path(request);

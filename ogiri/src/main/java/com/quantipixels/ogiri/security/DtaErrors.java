@@ -49,6 +49,8 @@ public final class DtaErrors {
                             false,
                             "errors",
                             List.of("User was not found or was not logged in.")));
+        } else if (path.equals(mounted + "/password")) {
+            write(response, 401, Map.of("success", false, "errors", List.of("Unauthorized")));
         } else if (path.equals(mounted) || path.equals(mounted + "/")) {
             String message =
                     request.getMethod().equals("DELETE")

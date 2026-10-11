@@ -18,7 +18,11 @@ import org.springframework.orm.jpa.JpaTransactionManager;
 class OgiriAutoConfigurationTest {
     private final WebApplicationContextRunner runner =
             new WebApplicationContextRunner()
-                    .withConfiguration(AutoConfigurations.of(OgiriAutoConfiguration.class));
+                    .withConfiguration(AutoConfigurations.of(OgiriAutoConfiguration.class))
+                    .withBean(
+                            org.springframework.mail.javamail.JavaMailSender.class,
+                            org.springframework.mail.javamail.JavaMailSenderImpl::new)
+                    .withPropertyValues("ogiri.public-base-url=https://accounts.example.test");
 
     private static DataSource source() {
         if (System.getenv("OGIRI_TEST_JDBC_URL") == null) {
@@ -28,6 +32,19 @@ class OgiriAutoConfigurationTest {
                 System.getenv("OGIRI_TEST_JDBC_URL"),
                 System.getenv("OGIRI_TEST_JDBC_USER"),
                 System.getenv("OGIRI_TEST_JDBC_PASSWORD"));
+    }
+
+    @Test
+    void missingMailFailsWithActionableCause() {
+        new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(OgiriAutoConfiguration.class))
+                .withPropertyValues("ogiri.public-base-url=https://accounts.example.test")
+                .withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .run(
+                        context ->
+                                assertThat(context.getStartupFailure())
+                                        .hasRootCauseMessage(
+                                                "Ogiri password recovery requires JavaMailSender or OgiriMailer"));
     }
 
     @Test

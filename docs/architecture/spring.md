@@ -1,6 +1,6 @@
 # Spring architecture
 
-Ogiri implements `contracts/PROTOCOL.md` revision 3.0. The Spring decision selects a dedicated stateless DTA authentication mechanism and independently committed JDBC workflows. Java 17 is the runtime baseline; the compiler uses mise JDK 25 with release 17.
+Ogiri implements `contracts/PROTOCOL.md` revision 3.3. The Spring decision selects a dedicated stateless DTA authentication mechanism and independently committed JDBC workflows. Java 17 is the runtime baseline; the compiler uses mise JDK 25 with release 17.
 
 ## Modules and ownership
 
@@ -47,6 +47,14 @@ No JWT, v1 compatibility, resource-server dependency, automatic schema migration
 
 Registration and account updates use Jakarta Bean Validation through Spring Validator. Account views allow only the DTA resource columns (id, provider, uid, email, name, nickname, image, allow_password_change, created_at, updated_at) plus explicitly configured `ogiri.account.columns`; SELECT * is used for the private credential snapshot, never as the wire projection. The sample opts into `role`. The store normalizes email on create/update and uses indexed `email = ?` lookup. Existing migrated addresses must already have Devise's normalized form, or be normalized by an application migration.
 
-The provider bean can participate in Spring's global AuthenticationManager assembly. Ogiri's filter uses its typed resolver and a dedicated ProviderManager. Applications with multiple PlatformTransactionManager beans must supply an AuthTransactions bean tied to the correct DataSource; ambiguity fails startup. An application-owned SecurityFilterChain must opt into `http.with(OgiriConfigurer.ogiri(runtime), configurer -> {})` and choose its endpoint authorization rules. Ogiri does not replace that chain.
+The default provider is assembled inside Ogiri's typed resolver and dedicated ProviderManager. The OgiriPasswords wrapper keeps its encoder out of Spring's global PasswordEncoder selection; host Basic authentication retains its own account store and encoder. Applications with multiple PlatformTransactionManager beans must supply an AuthTransactions bean tied to the correct DataSource; ambiguity fails startup. An application-owned SecurityFilterChain must opt into `http.with(OgiriConfigurer.ogiri(runtime), configurer -> {})` and choose its endpoint authorization rules. Ogiri does not replace that chain.
 
 Subject, session value records, JdbcSessions, AuthTransactions and OgiriRuntime are intentional public integration APIs for host transaction and custom-chain integration. The locked storage operations and JDBC accessor still need isolation behind internal implementation packages in the next API checkpoint. MVC's current-identity helper is private. Rotation, lockout, confirmation and scheduled cleanup configuration that needs unfinished behavior fails startup until its implementation slice removes the respective guard.
+
+## Password and mail checkpoint
+
+P1-P6 share the subject/account/session coordinator. Recovery tokens are random 32-byte base64url values; the Devise column contains the lowercase SHA-256 hex digest. P3 sets the reset window and confirms the account; P4 and R6 consume it and apply the configured session-retention transition. Credential survival is computed before the mutation commits, so header planning never borrows a second connection after a JPA transaction.
+
+Configure `ogiri.public-base-url` (fallback `spring.application.url`) independently of request Host and scheme. Links append the context, dispatcher servlet and Ogiri mount paths. Redirect allowlists compare parsed scheme, host, port and remaining path/query/fragment; host wildcards cannot match query, fragment or userinfo. The default JavaMailSender adapter uses `ogiri.mail.<kind>.subject` and `.body` MessageSource keys, with the link as body argument 0. Replace the three-method OgiriMailer bean for application delivery/content.
+
+MailDispatcher publishes a redacted intent inside the transaction. Its synchronous AFTER_COMMIT listener records a delivery receipt. Failed non-paranoid delivery returns the contract 503 while the digest remains committed; paranoid delivery logs a fixed event kind and returns the same normal success body as an unknown account. Missing delivery infrastructure or public URL fails startup with an actionable cause. Consumer tests use an independent connection in the mail callback to prove committed visibility and use a forged Host over actual HTTP to prove the mounted configured link.

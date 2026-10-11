@@ -230,6 +230,21 @@ public final class JdbcSessions {
                 });
     }
 
+    public boolean liveLocked(Subject subject, UUID id) {
+        return id != null
+                && !jdbc.queryForList(
+                                "SELECT id FROM ogiri_sessions WHERE "
+                                        + OWNER
+                                        + " AND id = ? AND expires_at > "
+                                        + nowSql(),
+                                String.class,
+                                subject.realm(),
+                                subject.tenantId(),
+                                subject.subjectId(),
+                                id.toString())
+                        .isEmpty();
+    }
+
     public int revokeAllLocked(Subject subject) {
         return jdbc.update(
                 "DELETE FROM ogiri_sessions WHERE " + OWNER,

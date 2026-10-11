@@ -27,11 +27,94 @@ import org.springframework.web.bind.annotation.RestController;
 public final class OgiriEndpoints {
     private final OgiriRuntime runtime;
     private final com.quantipixels.ogiri.account.RegistrationService registration;
+    private final com.quantipixels.ogiri.account.PasswordService passwords;
 
     public OgiriEndpoints(
-            OgiriRuntime runtime, com.quantipixels.ogiri.account.RegistrationService registration) {
+            OgiriRuntime runtime,
+            com.quantipixels.ogiri.account.RegistrationService registration,
+            com.quantipixels.ogiri.account.PasswordService passwords) {
         this.runtime = runtime;
         this.registration = registration;
+        this.passwords = passwords;
+    }
+
+    @PostMapping(path = "/password", consumes = "application/json")
+    public Map<String, Object> resetPassword(@RequestBody Map<String, Object> values) {
+        return passwords.request(values);
+    }
+
+    @PostMapping(path = "/password", consumes = "application/x-www-form-urlencoded")
+    public Map<String, Object> resetPasswordForm(@RequestParam Map<String, String> values) {
+        return passwords.request(values);
+    }
+
+    @GetMapping("/password/edit")
+    public ResponseEntity<Void> resetLink(
+            @RequestParam(required = false) String reset_password_token,
+            @RequestParam(required = false) String redirect_url,
+            @RequestParam(required = false) String config) {
+        return ResponseEntity.status(302)
+                .location(
+                        java.net.URI.create(
+                                passwords.follow(reset_password_token, redirect_url, config)))
+                .build();
+    }
+
+    @RequestMapping(
+            path = "/password",
+            method = {
+                org.springframework.web.bind.annotation.RequestMethod.PUT,
+                org.springframework.web.bind.annotation.RequestMethod.PATCH
+            },
+            consumes = "application/json")
+    public Map<String, Object> changePassword(
+            @RequestBody Map<String, Object> values,
+            Authentication authentication,
+            HttpServletRequest request) {
+        var identity =
+                authentication instanceof OgiriAuthentication current && current.isAuthenticated()
+                        ? current
+                        : null;
+        var changed =
+                passwords.change(
+                        identity == null ? null : identity.getPrincipal(),
+                        values,
+                        identity == null ? null : identity.session().id());
+        var account = changed.account();
+        if (identity != null && !changed.credentialRetained())
+            request.removeAttribute(ResponseCredentials.ATTRIBUTE);
+        return Map.of(
+                "success",
+                true,
+                "data",
+                account.view(false),
+                "message",
+                "Your password has been successfully updated.");
+    }
+
+    @RequestMapping(
+            path = "/password",
+            method = {
+                org.springframework.web.bind.annotation.RequestMethod.PUT,
+                org.springframework.web.bind.annotation.RequestMethod.PATCH
+            },
+            consumes = "application/x-www-form-urlencoded")
+    public Map<String, Object> changePasswordForm(
+            @RequestParam Map<String, String> values,
+            Authentication authentication,
+            HttpServletRequest request) {
+        return changePassword(new java.util.LinkedHashMap<>(values), authentication, request);
+    }
+
+    @RequestMapping(
+            path = {"", "/", "/password", "/confirmation", "/unlock"},
+            method = {
+                org.springframework.web.bind.annotation.RequestMethod.POST,
+                org.springframework.web.bind.annotation.RequestMethod.PUT,
+                org.springframework.web.bind.annotation.RequestMethod.PATCH
+            })
+    public ResponseEntity<Map<String, Object>> unsupportedBody() {
+        return unsupportedSignInBody();
     }
 
     @org.springframework.web.bind.annotation.RequestMapping(
@@ -66,9 +149,11 @@ public final class OgiriEndpoints {
             Authentication authentication,
             HttpServletRequest request) {
         var identity = accountIdentity(authentication, "User not found.");
-        var account = registration.update(identity.getPrincipal(), values);
+        var changed = registration.update(identity.getPrincipal(), values, identity.session().id());
+        var account = changed.account();
         var credentials = (ResponseCredentials) request.getAttribute(ResponseCredentials.ATTRIBUTE);
-        if (credentials != null)
+        if (!changed.credentialRetained()) request.removeAttribute(ResponseCredentials.ATTRIBUTE);
+        else if (credentials != null)
             request.setAttribute(
                     ResponseCredentials.ATTRIBUTE,
                     new ResponseCredentials(

@@ -31,7 +31,8 @@ import org.springframework.transaction.PlatformTransactionManager;
         afterName = {
             "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
             "org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration",
-            "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
+            "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration",
+            "org.springframework.boot.mail.autoconfigure.MailSenderAutoConfiguration"
         },
         beforeName = {
             "org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration",
@@ -46,6 +47,7 @@ import org.springframework.transaction.PlatformTransactionManager;
         matchIfMissing = true)
 @EnableConfigurationProperties(OgiriProperties.class)
 @EnableWebSecurity
+@org.springframework.transaction.annotation.EnableTransactionManagement
 public final class OgiriAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
@@ -155,6 +157,69 @@ public final class OgiriAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    com.quantipixels.ogiri.internal.PublicLinks ogiriLinks(
+            OgiriProperties properties, org.springframework.core.env.Environment environment) {
+        String url =
+                properties.publicBaseUrl().isBlank()
+                        ? environment.getProperty("spring.application.url", "")
+                        : properties.publicBaseUrl();
+        String context = environment.getProperty("server.servlet.context-path", "");
+        String servlet = environment.getProperty("spring.mvc.servlet.path", "");
+        return new com.quantipixels.ogiri.internal.PublicLinks(
+                url,
+                (context.equals("/") ? "" : context)
+                        + (servlet.equals("/") ? "" : servlet)
+                        + properties.basePath(),
+                properties.redirectAllowlist());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(com.quantipixels.ogiri.mail.OgiriMailer.class)
+    com.quantipixels.ogiri.mail.OgiriMailer ogiriMailer(
+            ObjectProvider<org.springframework.mail.javamail.JavaMailSender> senders,
+            org.springframework.context.MessageSource messages,
+            OgiriProperties properties) {
+        var sender = senders.getIfAvailable();
+        if (sender == null)
+            throw new IllegalStateException(
+                    "Ogiri password recovery requires JavaMailSender or OgiriMailer");
+        return new com.quantipixels.ogiri.internal.JavaMailOgiriMailer(
+                sender, messages, properties.mailFrom());
+    }
+
+    @Bean
+    com.quantipixels.ogiri.internal.MailDispatcher ogiriMailDispatcher(
+            org.springframework.context.ApplicationEventPublisher events,
+            com.quantipixels.ogiri.mail.OgiriMailer mailer) {
+        return new com.quantipixels.ogiri.internal.MailDispatcher(events, mailer);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    com.quantipixels.ogiri.account.PasswordService ogiriPasswordService(
+            AccountStore accounts,
+            AuthTransactions transactions,
+            JdbcSessions sessions,
+            OgiriSettings settings,
+            com.quantipixels.ogiri.account.OgiriPasswords passwords,
+            SignInService signIn,
+            com.quantipixels.ogiri.account.AccountValidator validator,
+            com.quantipixels.ogiri.internal.MailDispatcher mail,
+            com.quantipixels.ogiri.internal.PublicLinks links) {
+        return new com.quantipixels.ogiri.account.PasswordService(
+                accounts,
+                transactions,
+                sessions,
+                settings,
+                passwords.encoder(),
+                signIn,
+                validator,
+                mail,
+                links);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(
             org.springframework.security.authentication.AuthenticationManagerResolver.class)
     org.springframework.security.authentication.AuthenticationManagerResolver<
@@ -198,8 +263,10 @@ public final class OgiriAutoConfiguration {
             havingValue = "true",
             matchIfMissing = true)
     OgiriEndpoints ogiriEndpoints(
-            OgiriRuntime runtime, com.quantipixels.ogiri.account.RegistrationService registration) {
-        return new OgiriEndpoints(runtime, registration);
+            OgiriRuntime runtime,
+            com.quantipixels.ogiri.account.RegistrationService registration,
+            com.quantipixels.ogiri.account.PasswordService passwords) {
+        return new OgiriEndpoints(runtime, registration, passwords);
     }
 
     @Bean
@@ -214,10 +281,15 @@ public final class OgiriAutoConfiguration {
                                         .requestMatchers(
                                                 request ->
                                                         properties.endpoints().enabled()
-                                                                && OgiriConfigurer.publicWorkflow(
-                                                                        request,
-                                                                        runtime.settings()
-                                                                                .basePath()))
+                                                                && (OgiriConfigurer.publicWorkflow(
+                                                                                request,
+                                                                                runtime.settings()
+                                                                                        .basePath())
+                                                                        || OgiriConfigurer
+                                                                                .tokenResetWorkflow(
+                                                                                        request,
+                                                                                        runtime
+                                                                                                .settings())))
                                         .permitAll()
                                         .anyRequest()
                                         .authenticated())

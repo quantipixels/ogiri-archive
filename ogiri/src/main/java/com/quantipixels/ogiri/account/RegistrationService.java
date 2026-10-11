@@ -81,6 +81,11 @@ public final class RegistrationService {
     }
 
     public OgiriAccount update(OgiriAccount identity, Map<String, ?> values) {
+        return update(identity, values, null).account();
+    }
+
+    public AccountChange update(
+            OgiriAccount identity, Map<String, ?> values, java.util.UUID credential) {
         var input = AccountInput.from(values, settings, false);
         requireInput(input, "account update");
         String hash = input.password() == null ? null : passwords.encode(input.password());
@@ -111,7 +116,8 @@ public final class RegistrationService {
                     }
                     if (hash != null && settings.removeTokensAfterPasswordReset())
                         sessions.keepNewestLocked(signIn.subject(current));
-                    return updated;
+                    return new AccountChange(
+                            updated, sessions.liveLocked(signIn.subject(current), credential));
                 });
     }
 
