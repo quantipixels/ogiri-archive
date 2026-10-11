@@ -28,7 +28,7 @@ PROFILES: dict[str, dict[str, str]] = {
         "OGIRI_MAXIMUM_ATTEMPTS": "3",
         "OGIRI_UNLOCK_IN_SECONDS": "30",
         "OGIRI_PARANOID": "true",
-        "OGIRI_REDIRECT_ALLOWLIST": "https://client.example.test/*",
+        "OGIRI_REDIRECT_ALLOWLIST": "https://*.example.test/*",
         "OGIRI_REMOVE_TOKENS_AFTER_PASSWORD_RESET": "true",
         "OGIRI_CHECK_CURRENT_PASSWORD_BEFORE_UPDATE": "attributes",
         "OGIRI_MAX_NUMBER_OF_DEVICES": "3",

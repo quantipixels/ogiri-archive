@@ -1,4 +1,4 @@
-"""Wire parity: test names cite contract rev 3.0 behaviour ids."""
+"""Wire parity: test names cite contract rev 3.3 behaviour ids."""
 
 import base64
 import hashlib
@@ -22,10 +22,12 @@ from support import (
     LOCKED,
     PARANOID,
     PASSWORD,
+    TOKEN_KEYS,
     Database,
     Mailbox,
     Settings,
     account,
+    account_keys,
     auth_headers,
     credentials,
     error,
@@ -227,7 +229,7 @@ def test_S1_json_and_form_signin(api: API, settings: Settings) -> None:
     ):
         assert response.status_code == 200
         assert set(response.json()) == {"data"}
-        account(response, DEMO)
+        account(response, DEMO, settings)
         auth_headers(response, settings)
 
 
@@ -302,7 +304,7 @@ def test_V1_validate(api: API, settings: Settings) -> None:
     assert response.status_code == 200
     assert set(response.json()) == {"success", "data"}
     assert response.json()["success"] is True
-    account(response, DEMO)
+    account(response, DEMO, settings)
     auth_headers(response, settings)
 
 
@@ -315,7 +317,7 @@ def test_R1_signup(api: API, settings: Settings, mail: Mailbox) -> None:
     assert response.status_code == 200
     assert set(response.json()) == {"status", "data"}
     assert response.json()["status"] == "success"
-    account(response, "new@example.com", full=True, name="New User")
+    account(response, "new@example.com", settings, full=True, name="New User")
     if settings.profile == "strict":
         assert "access-token" not in response.headers
         assert "/auth/confirmation?" in mail.link("new@example.com", "Confirmation")
@@ -371,7 +373,12 @@ def test_R1_signup(api: API, settings: Settings, mail: Mailbox) -> None:
     ],
 )
 def test_R2_registration_errors(
-    api: API, email: str, password: str, confirmation: str, errors: dict[str, list[str]]
+    api: API,
+    settings: Settings,
+    email: str,
+    password: str,
+    confirmation: str,
+    errors: dict[str, list[str]],
 ) -> None:
     response = api.signup(email, password=password, password_confirmation=confirmation)
     assert response.status_code == 422, response.text
@@ -379,7 +386,7 @@ def test_R2_registration_errors(
     assert set(body) == {"status", "data", "errors"}
     assert body["status"] == "error"
     assert body["errors"] == errors
-    assert set(body["data"]) == FULL_KEYS
+    assert set(body["data"]) == account_keys(settings, full=True)
     assert body["data"]["id"] is None
     assert body["data"]["created_at"] is None
     assert body["data"]["updated_at"] is None
@@ -391,7 +398,7 @@ def test_R2_registration_errors(
         "name": None,
         "nickname": None,
         "image": None,
-        "role": "user",
+        **({"role": "user"} if settings.reference else {}),
         "allow_password_change": False,
         "created_at": None,
         "updated_at": None,
@@ -421,7 +428,7 @@ def test_R4_missing_confirmation_redirect(api: API, settings: Settings) -> None:
         status="error",
         data=response.json()["data"],
     )
-    assert set(response.json()["data"]) == FULL_KEYS
+    assert set(response.json()["data"]) == account_keys(settings, full=True)
 
 
 @pytest.mark.profiles("strict")
@@ -447,7 +454,7 @@ def test_R6_update_permitted_attributes(api: API, settings: Settings, method: st
     assert response.status_code == 200, response.text
     assert set(response.json()) == {"status", "data"}
     assert response.json()["status"] == "success"
-    account(response, DEMO, full=True, name="Changed")
+    account(response, DEMO, settings, full=True, name="Changed")
     auth_headers(response, settings)
 
 
@@ -481,7 +488,7 @@ def test_R7_wrong_current_password(api: API, settings: Settings) -> None:
         and settings.env["OGIRI_CHECK_CURRENT_PASSWORD_BEFORE_UPDATE"] == "false"  # noqa: S105 -- setting enum
     ):
         assert response.status_code == 200, response.text
-        account(response, DEMO, full=True, name="Changed")
+        account(response, DEMO, settings, full=True, name="Changed")
         return
     assert response.status_code == 422
     assert response.json() == {
@@ -721,7 +728,7 @@ def test_P4_change_password_via_email_link(
     assert set(response.json()) == {"success", "data", "message"}
     assert response.json()["success"] is True
     assert response.json()["message"] == "Your password has been successfully updated."
-    account(response, DEMO, full=True)
+    account(response, DEMO, settings, full=True)
     assert db.one("SELECT allow_password_change FROM users WHERE email=%s", (DEMO,)) is False
     assert api.signin(password="changed-password").status_code == 200
     assert api.signin().status_code == 401
@@ -1027,10 +1034,10 @@ def test_A1_A2_fixture_bcrypt_and_new_hash(api: API, db: Database) -> None:
     assert re.fullmatch(r"\$2[aby]\$12\$[./A-Za-z0-9]{53}", stored)
 
 
-def test_A3_views(api: API) -> None:
-    account(api.signin(), DEMO)
+def test_A3_views(api: API, settings: Settings) -> None:
+    account(api.signin(), DEMO, settings)
     response = api.signup()
-    account(response, "new@example.com", full=True)
+    account(response, "new@example.com", settings, full=True)
 
 
 @pytest.mark.profiles("strict")
@@ -1391,7 +1398,7 @@ def test_H2_D_B_json_null_ignored(api: API) -> None:
 @pytest.mark.profiles("default", "reset-token", "rotation", "cookie")
 @pytest.mark.ogiri_only("D-B: P4 ignores current_password with the default setting")
 @pytest.mark.parametrize("current", [PASSWORD, "wrong"])
-def test_P4_D_B_ignored_current_password(api: API, current: str) -> None:
+def test_P4_D_B_ignored_current_password(api: API, settings: Settings, current: str) -> None:
     response = api.request(
         "PUT",
         "/auth/password",
@@ -1404,13 +1411,13 @@ def test_P4_D_B_ignored_current_password(api: API, current: str) -> None:
     )
     assert response.status_code == 200, response.text
     assert response.json()["message"] == "Your password has been successfully updated."
-    account(response, DEMO, full=True)
+    account(response, DEMO, settings, full=True)
     assert api.signin(password="changed-password").status_code == 200
 
 
 @pytest.mark.profiles("default", "reset-token", "rotation", "cookie")
 @pytest.mark.ogiri_only("D-B / R6: rev 3 says supplied current_password is otherwise ignored")
-def test_R6_ignored_current_password_default(api: API) -> None:
+def test_R6_ignored_current_password_default(api: API, settings: Settings) -> None:
     response = api.request(
         "PUT",
         "/auth",
@@ -1418,7 +1425,7 @@ def test_R6_ignored_current_password_default(api: API) -> None:
         json={"name": "Changed", "current_password": "wrong"},
     )
     assert response.status_code == 200, response.text
-    account(response, DEMO, full=True, name="Changed")
+    account(response, DEMO, settings, full=True, name="Changed")
 
 
 @pytest.mark.profiles("strict")
@@ -1700,3 +1707,156 @@ def test_P6_reference_greatest_expiry_over_issuance(api: API, db: Database, mail
     assert response.status_code == 200
     assert api.request("GET", "/me", headers=first).status_code == 200
     assert api.request("GET", "/me", headers=last).status_code == 401
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-A: redirect patterns match URL parts, never the raw URL")
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.test/#.example.test/x",
+        "https://evil.test/?a=.example.test/",
+        "https://user@evil.test/x",
+    ],
+)
+def test_R5_D_A_deceptive_confirmation_redirect(api: API, settings: Settings, url: str) -> None:
+    assert settings.env["OGIRI_REDIRECT_ALLOWLIST"] == "https://*.example.test/*"
+    response = api.signup(confirm_success_url=url)
+    error(
+        response,
+        422,
+        f"Redirect to '{url}' not allowed.",
+        status="error",
+        data=response.json()["data"],
+    )
+    assert set(response.json()["data"]) == FULL_KEYS
+    assert "location" not in response.headers
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-A: reset links never redirect to deceptive wildcard matches")
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.test/#.example.test/x",
+        "https://evil.test/?a=.example.test/",
+        "https://user@evil.test/x",
+    ],
+)
+def test_P3_D_A_deceptive_reset_redirect(
+    api: API, mail: Mailbox, settings: Settings, url: str
+) -> None:
+    assert settings.env["OGIRI_REDIRECT_ALLOWLIST"] == "https://*.example.test/*"
+    link = urlsplit(reset_link(api, mail))
+    token = parse_qs(link.query)["reset_password_token"][0]
+    response = api.request(
+        "GET", link.path, params={"reset_password_token": token, "redirect_url": url}
+    )
+    error(response, 422, f"Redirect to '{url}' not allowed.", status="error", data=None)
+    assert "location" not in response.headers
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("D-A: a real wildcard subdomain remains allowed")
+@pytest.mark.parametrize("endpoint", ["registration", "reset"])
+def test_R5_P3_D_A_allowed_subdomain(
+    api: API, mail: Mailbox, settings: Settings, endpoint: str
+) -> None:
+    assert settings.env["OGIRI_REDIRECT_ALLOWLIST"] == "https://*.example.test/*"
+    url = "https://app.example.test/reset"
+    if endpoint == "registration":
+        response = api.signup(confirm_success_url=url)
+        assert response.status_code == 200, response.text
+        link = urlsplit(mail.link("new@example.com", "Confirmation"))
+        assert parse_qs(link.query)["redirect_url"] == [url]
+    else:
+        link = urlsplit(reset_link(api, mail))
+        token = parse_qs(link.query)["reset_password_token"][0]
+        response = api.request(
+            "GET", link.path, params={"reset_password_token": token, "redirect_url": url}
+        )
+        assert redirect(response, target=url)["reset_password"] == "true"  # noqa: S105
+
+
+@pytest.mark.ogiri_only("D-V: default views omit the unconfigured fixture role column")
+def test_A3_D_V_default_views(api: API, db: Database) -> None:
+    signed_in = api.signin("admin@example.com")
+    assert signed_in.status_code == 200, signed_in.text
+    assert set(signed_in.json()["data"]) == TOKEN_KEYS
+    validated = api.request("GET", "/auth/validate_token", headers=credentials(signed_in))
+    assert validated.status_code == 200, validated.text
+    assert set(validated.json()["data"]) == TOKEN_KEYS
+    updated = api.request(
+        "PATCH",
+        "/auth",
+        headers=credentials(signed_in),
+        json={"name": "Admin", "current_password": PASSWORD},
+    )
+    assert updated.status_code == 200, updated.text
+    assert set(updated.json()["data"]) == FULL_KEYS
+    registered = api.signup()
+    assert registered.status_code == 200, registered.text
+    assert set(registered.json()["data"]) == FULL_KEYS
+    assert db.one("SELECT role FROM users WHERE email='admin@example.com'") == "admin"
+
+
+def test_R6_P6_password_change_invalidates_earlier_reset_link(
+    api: API, db: Database, mail: Mailbox, settings: Settings
+) -> None:
+    earlier = api.login()
+    db.session_expiry(earlier, 60)
+    current = api.login()
+    link = urlsplit(reset_link(api, mail))
+    assert db.one("SELECT reset_password_token FROM users WHERE email=%s", (DEMO,))
+    response = api.request(
+        "PATCH",
+        "/auth",
+        headers=current,
+        json={"password": "changed-password", "password_confirmation": "changed-password"}
+        | ({"current_password": PASSWORD} if settings.profile == "strict" else {}),
+    )
+    assert response.status_code == 200, response.text
+    assert db.one("SELECT reset_password_token FROM users WHERE email=%s", (DEMO,)) is None
+    assert db.one("SELECT reset_password_sent_at FROM users WHERE email=%s", (DEMO,)) is None
+    assert api.request("GET", link.path + "?" + link.query).status_code == 404
+    assert api.request("GET", "/me", headers=current).status_code == 200
+    assert api.request("GET", "/me", headers=earlier).status_code == (
+        401
+        if settings.env["OGIRI_REMOVE_TOKENS_AFTER_PASSWORD_RESET"] == "true"  # noqa: S105 -- boolean setting
+        else 200
+    )
+    assert api.signin(password="changed-password").status_code == 200
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.ogiri_only("U2/U3: pinned DTA sends unlock mail even when the account is unlocked")
+def test_U2_U3_unlocked_account_sends_no_mail(
+    api: API, db: Database, mail: Mailbox, settings: Settings
+) -> None:
+    assert db.one("SELECT locked_at FROM users WHERE email=%s", (DEMO,)) is None
+    response = api.request("POST", "/auth/unlock", json={"email": DEMO})
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "success": True,
+        "message": PARANOID["unlock"]
+        if settings.env["OGIRI_PARANOID"] == "true"
+        else (
+            f"An email has been sent to '{DEMO}' "
+            "containing instructions for unlocking your account."
+        ),
+    }
+    messages = mail.http.get("/api/v1/messages")
+    messages.raise_for_status()
+    assert messages.json()["messages"] == []
+    assert db.one("SELECT unlock_token FROM users WHERE email=%s", (DEMO,)) is None
+
+
+@pytest.mark.profiles("strict")
+@pytest.mark.reference_only("U2: native DTA bypasses Devise's if_access_locked guard")
+def test_U2_reference_unlocked_account_receives_mail(api: API, db: Database, mail: Mailbox) -> None:
+    assert db.one("SELECT locked_at FROM users WHERE email=%s", (DEMO,)) is None
+    response = api.request("POST", "/auth/unlock", json={"email": DEMO})
+    assert response.status_code == 200, response.text
+    assert "/auth/unlock?" in mail.link(DEMO, "Unlock")
+    assert db.one("SELECT unlock_token FROM users WHERE email=%s", (DEMO,)) is not None
+    assert db.one("SELECT locked_at FROM users WHERE email=%s", (DEMO,)) is None
