@@ -52,7 +52,9 @@ def settings(pytestconfig: pytest.Config) -> Settings:
 
 @pytest.fixture
 def api(settings: Settings) -> Iterator[API]:
-    instance = API(settings.base_url)
+    instance = API(
+        settings.base_url, login_csrf=settings.profile == "cookie" and not settings.reference
+    )
     yield instance
     instance.close()
 
