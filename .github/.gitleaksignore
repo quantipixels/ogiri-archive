@@ -24,3 +24,6 @@ e14643270bfdcc5cbc1113f852c272ce5a14ff3a:docs/authentication.md:generic-api-key:
 
 # Protocol test vector: base64url of bytes 0..31 with og1_ prefix, not an issued credential.
 daf1dc6ccd226d810c84ea6e89385da68f603f07:packages/elixir/test/ogiri_test.exs:generic-api-key:119
+
+# Same protocol test vector in the historical Python tests, not an issued credential.
+46e10de3b5aefca939cc1d48de0c352eed420f0b:packages/python/tests/test_sessions.py:generic-api-key:12
