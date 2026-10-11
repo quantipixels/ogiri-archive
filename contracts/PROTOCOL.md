@@ -1,6 +1,6 @@
 # Ogiri protocol, version 2: DeviseTokenAuth parity
 
-Status: ready (revision 3.1, 2026-10-11; 3.1 settles the batch-response `Authorization` value in H5 from the DTA oracle). Every Ogiri library (Spring Boot, FastAPI, Phoenix) implements this contract. It follows DeviseTokenAuth (DTA) at commit `b02076a` with Devise at `05811fb`, so existing DTA frontends keep working when a Rails backend is replaced. Deliberate differences are listed in [Differences from DTA](#differences-from-dta). The executable form is [`conformance/`](conformance): a library conforms when that suite passes against its sample application.
+Status: ready (revision 3.2, 2026-10-11; 3.1 settles the batch-response `Authorization` value in H5 from the DTA oracle; 3.2 makes redirect-allowlist matching per URL part, D-A). Every Ogiri library (Spring Boot, FastAPI, Phoenix) implements this contract. It follows DeviseTokenAuth (DTA) at commit `b02076a` with Devise at `05811fb`, so existing DTA frontends keep working when a Rails backend is replaced. Deliberate differences are listed in [Differences from DTA](#differences-from-dta). The executable form is [`conformance/`](conformance): a library conforms when that suite passes against its sample application.
 
 Each behaviour has an id (for example `S3`) that tickets, tests and reviews cite. Examples are normative unless marked *illustrative*. Lengths are counted in Unicode code points.
 
@@ -10,7 +10,7 @@ Each behaviour has an id (for example `S3`) that tickets, tests and reviews cite
 - **Client**: one signed-in device. Each sign-in creates a client id; a client has one live access token.
 - **Auth headers**: `access-token`, `client`, `uid`, `expiry`, `token-type`, plus `Authorization` (§2).
 - **Base path**: where the library mounts, default `/auth`. Paths below are relative to it.
-- **Redirect allowlist**: configured URL patterns that `redirect_url` and `confirm_success_url` must match; `*` matches any run of characters. When the list is empty, any URL is allowed (DTA's default).
+- **Redirect allowlist**: configured URL patterns that `redirect_url`, `confirm_success_url` and `auth_origin_url` must match. When the list is empty, any URL is allowed (DTA's default). Matching is per URL part, not on the raw string (difference D-A). The candidate is parsed first. It must be an absolute `http` or `https` URL with no userinfo (`user@`); otherwise it is not allowed. Its scheme must equal the pattern's. Its host is compared case-insensitively, and `*` there matches only hostname characters (letters, digits, `-`, `.`). Its port, with defaults filled in, must equal the pattern's, unless the pattern's port is `*`. The rest (path, query and fragment) is matched with `*` as any run of characters. So `https://*.example.com/*` allows `https://app.example.com/reset` and never `https://evil.test/#.example.com/`.
 - **Paranoid mode**: Devise's `paranoid`; when on, responses never reveal whether an email exists. Default off.
 
 ## 2. Credentials (H)
@@ -140,6 +140,7 @@ Confirmable and lockable are off by default (DTA's generated model enables neith
 | D-C | Authenticated confirmation adds auth parameters to C1's redirect | Credentials ignored on C1 (H9) | Public endpoints never mix two identities |
 | D-K | Cookie mode without CSRF protection | Double-submit CSRF for cookie-authenticated unsafe requests | Cookies are ambient credentials |
 | D-M | In-flight reset/confirm/unlock links from Rails | Not carried over | Devise digests them with the Rails secret |
+| D-A | Redirect allowlist globs match the raw URL string, so `https://*.example.com/*` also allows `https://evil.test/#.example.com/` and the redirect carries tokens there | Patterns match the parsed scheme, host and port, and `*` cannot leave the host (§1 Redirect allowlist) | The P3, C1 and O1 redirects carry credentials in the query; a raw-string glob makes any wildcard entry an open redirect |
 
 ## 14. Sample applications
 
