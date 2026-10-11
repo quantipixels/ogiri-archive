@@ -59,6 +59,18 @@ class PasswordMailTest {
         volatile boolean fail;
 
         public void resetPassword(String recipient, String value) {
+            send(recipient, value, "reset_password_token");
+        }
+
+        public void confirmation(String recipient, String value) {
+            send(recipient, value, "confirmation_token");
+        }
+
+        public void unlock(String recipient, String value) {
+            send(recipient, value, "unlock_token");
+        }
+
+        private void send(String recipient, String value, String column) {
             var outside =
                     new JdbcTemplate(
                             new DriverManagerDataSource(
@@ -67,21 +79,17 @@ class PasswordMailTest {
                                     System.getenv("OGIRI_TEST_JDBC_PASSWORD")));
             String stored =
                     outside.queryForObject(
-                            "SELECT reset_password_token FROM users WHERE email = ? AND provider = 'email'",
+                            "SELECT "
+                                    + column
+                                    + " FROM users WHERE (email = ? OR unconfirmed_email = ?) AND provider = 'email'",
                             String.class,
+                            recipient,
                             recipient);
-            String token = query(value).get("reset_password_token");
-            assertEquals(java.util.HexFormat.of().formatHex(securityDigest(token)), stored);
+            assertEquals(
+                    java.util.HexFormat.of().formatHex(securityDigest(query(value).get(column))),
+                    stored);
             link = value;
             if (fail) throw new IllegalStateException("injected delivery failure");
-        }
-
-        public void confirmation(String recipient, String value) {
-            link = value;
-        }
-
-        public void unlock(String recipient, String value) {
-            link = value;
         }
     }
 

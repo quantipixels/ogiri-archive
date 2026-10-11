@@ -18,19 +18,22 @@ public final class SignInService {
     private final OgiriSettings settings;
     private final DevisePasswordEncoder passwords;
     private final String dummy;
+    private final ActivationService activation;
 
     public SignInService(
             AccountStore accounts,
             AuthTransactions transactions,
             SessionRepository sessions,
             OgiriSettings settings,
-            DevisePasswordEncoder passwords) {
+            DevisePasswordEncoder passwords,
+            ActivationService activation) {
         this.accounts = accounts;
         this.transactions = transactions;
         this.sessions = sessions;
         this.settings = settings;
         this.passwords = passwords;
         this.dummy = passwords.encode(Tokens.generate());
+        this.activation = activation;
     }
 
     public record Result(OgiriAccount account, IssuedSession issued) {
@@ -55,20 +58,45 @@ public final class SignInService {
             throw new DtaFailure(401, INVALID);
         }
         OgiriAccount candidate = found.orElseThrow();
-        return transactions.write(
-                () -> {
-                    transactions.lock(subject(candidate));
-                    OgiriAccount current =
-                            accounts.lock(candidate.id())
-                                    .orElseThrow(() -> new DtaFailure(401, INVALID));
-                    long now = transactions.now();
-                    checkActive(current, now);
-                    if (!matches || !verified.equals(current.getPassword())) {
-                        throw new DtaFailure(401, INVALID);
-                    }
-                    return new Result(
-                            current, sessions.issueLocked(subject(current), Tokens.client()));
-                });
+        var attempt = transactions.write(() -> attempt(candidate, verified, matches));
+        if (attempt.delivery() != null) attempt.delivery().verify(settings.paranoid());
+        if (attempt.failure() != null) throw attempt.failure();
+        return attempt.result();
+    }
+
+    private record Attempt(
+            Result result, DtaFailure failure, ActivationService.Delivery delivery) {}
+
+    private Attempt attempt(OgiriAccount candidate, String verified, boolean matches) {
+        transactions.lock(subject(candidate));
+        var locked = accounts.lock(candidate.id());
+        if (locked.isEmpty()) return new Attempt(null, new DtaFailure(401, INVALID), null);
+        var current = locked.orElseThrow();
+        long now = transactions.now();
+        current = clearExpiredLock(current, now);
+        try {
+            checkActive(current, now);
+        } catch (DtaFailure inactive) {
+            return new Attempt(null, inactive, null);
+        }
+        if (!matches || !verified.equals(current.getPassword())) {
+            var delivery = settings.lockable() ? activation.failedLocked(current) : null;
+            return new Attempt(null, new DtaFailure(401, INVALID), delivery);
+        }
+        if (settings.lockable() && !current.text("failed_attempts").equals("0"))
+            current = activation.clearLockLocked(current);
+        return new Attempt(
+                new Result(current, sessions.issueLocked(subject(current), Tokens.client())),
+                null,
+                null);
+    }
+
+    private OgiriAccount clearExpiredLock(OgiriAccount account, long now) {
+        return settings.lockable()
+                        && account.column("locked_at") != null
+                        && !account.locked(settings, now)
+                ? activation.clearLockLocked(account)
+                : account;
     }
 
     public Subject subject(OgiriAccount account) {

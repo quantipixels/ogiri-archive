@@ -25,7 +25,9 @@ import tools.jackson.databind.json.JsonMapper;
             "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
             "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
             "spring.profiles.active=demo",
-            "ogiri.paranoid=true"
+            "ogiri.paranoid=true",
+            "ogiri.confirmable=true",
+            "ogiri.lockable=true"
         })
 @Import(PasswordMailTest.MailConfiguration.class)
 class ParanoidMailTest {
@@ -48,7 +50,9 @@ class ParanoidMailTest {
                                         "password",
                                         "test-password",
                                         "password_confirmation",
-                                        "test-password"))
+                                        "test-password",
+                                        "confirm_success_url",
+                                        "https://client.example.test/done"))
                         .statusCode());
         mail.fail = true;
         try {
@@ -76,6 +80,50 @@ class ParanoidMailTest {
                             "SELECT reset_password_token FROM users WHERE email = ?",
                             String.class,
                             email));
+        } finally {
+            mail.fail = false;
+        }
+    }
+
+    @Test
+    void confirmationAndUnlockHideCommittedDeliveryFailures() throws Exception {
+        String email = "paranoid-activation-" + java.util.UUID.randomUUID() + "@example.com";
+        assertEquals(
+                200,
+                post(
+                                "",
+                                Map.of(
+                                        "email",
+                                        email,
+                                        "password",
+                                        "test-password",
+                                        "password_confirmation",
+                                        "test-password",
+                                        "confirm_success_url",
+                                        "https://client.example.test/done"))
+                        .statusCode());
+        mail.fail = true;
+        try {
+            for (String route : java.util.List.of("confirmation", "unlock")) {
+                if (route.equals("unlock"))
+                    jdbc.update(
+                            "UPDATE users SET locked_at = CURRENT_TIMESTAMP WHERE email = ?",
+                            email);
+                var known = post("/" + route, Map.of("email", email));
+                var unknown = post("/" + route, Map.of("email", "unknown-" + email));
+                assertEquals(200, known.statusCode(), known.body());
+                assertEquals(known.statusCode(), unknown.statusCode());
+                assertEquals(known.body(), unknown.body());
+                assertNotNull(
+                        jdbc.queryForObject(
+                                "SELECT "
+                                        + (route.equals("unlock")
+                                                ? "unlock_token"
+                                                : "confirmation_token")
+                                        + " FROM users WHERE email = ?",
+                                String.class,
+                                email));
+            }
         } finally {
             mail.fail = false;
         }

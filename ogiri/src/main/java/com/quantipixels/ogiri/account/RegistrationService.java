@@ -22,6 +22,7 @@ public final class RegistrationService {
     private final DevisePasswordEncoder passwords;
     private final SignInService signIn;
     private final AccountValidator validator;
+    private final ActivationService activation;
 
     public RegistrationService(
             AccountStore accounts,
@@ -30,7 +31,8 @@ public final class RegistrationService {
             OgiriSettings settings,
             DevisePasswordEncoder passwords,
             SignInService signIn,
-            AccountValidator validator) {
+            AccountValidator validator,
+            ActivationService activation) {
         this.accounts = accounts;
         this.transactions = transactions;
         this.sessions = sessions;
@@ -38,9 +40,13 @@ public final class RegistrationService {
         this.passwords = passwords;
         this.signIn = signIn;
         this.validator = validator;
+        this.activation = activation;
     }
 
-    public record Result(OgiriAccount account, IssuedSession issued) {
+    public record Result(
+            OgiriAccount account,
+            IssuedSession issued,
+            com.quantipixels.ogiri.internal.MailDispatcher.Receipt receipt) {
         @Override
         public String toString() {
             return "RegistrationResult[redacted]";
@@ -55,24 +61,36 @@ public final class RegistrationService {
                     validate(input, null, true);
                     return null;
                 });
+        String target = settings.confirmable() ? confirmationTarget(values, input) : null;
         String hash = passwords.encode(input.password());
         try {
-            return transactions.write(
-                    () -> {
-                        var columns = new LinkedHashMap<>(input.attributes());
-                        columns.put("email", input.email());
-                        columns.put("uid", input.email());
-                        columns.put("provider", "email");
-                        columns.put("encrypted_password", hash);
-                        Instant now = Instant.ofEpochMilli(transactions.now());
-                        columns.put("created_at", now);
-                        columns.put("updated_at", now);
-                        OgiriAccount account = accounts.create(columns);
-                        transactions.lock(signIn.subject(account));
-                        return new Result(
-                                account,
-                                sessions.issueLocked(signIn.subject(account), Tokens.client()));
-                    });
+            var result =
+                    transactions.write(
+                            () -> {
+                                var columns = new LinkedHashMap<>(input.attributes());
+                                columns.put("email", input.email());
+                                columns.put("uid", input.email());
+                                columns.put("provider", "email");
+                                columns.put("encrypted_password", hash);
+                                Instant now = Instant.ofEpochMilli(transactions.now());
+                                columns.put("created_at", now);
+                                columns.put("updated_at", now);
+                                OgiriAccount account = accounts.create(columns);
+                                transactions.lock(signIn.subject(account));
+                                if (settings.confirmable()) {
+                                    var delivery =
+                                            activation.confirmLocked(
+                                                    account, target, text(values, "config_name"));
+                                    return new Result(delivery.account(), null, delivery.receipt());
+                                }
+                                return new Result(
+                                        account,
+                                        sessions.issueLocked(
+                                                signIn.subject(account), Tokens.client()),
+                                        null);
+                            });
+            if (result.receipt() != null) result.receipt().verify(settings.paranoid());
+            return result;
         } catch (com.quantipixels.ogiri.SessionStoreException failure) {
             if (failure.getCause() instanceof DuplicateKeyException)
                 throw transactions.read(() -> taken(input, true));
@@ -89,37 +107,59 @@ public final class RegistrationService {
         var input = AccountInput.from(values, settings, false);
         requireInput(input, "account update");
         String hash = input.password() == null ? null : passwords.encode(input.password());
-        return transactions.write(
-                () -> {
-                    transactions.lock(signIn.subject(identity));
-                    var current =
-                            accounts.lock(identity.id())
-                                    .orElseThrow(() -> failure(404, "User not found."));
-                    validate(input, current, false);
-                    var changes = new LinkedHashMap<>(input.attributes());
-                    if (input.email() != null) {
-                        changes.put("email", input.email());
-                        changes.put("uid", input.email());
-                    }
-                    if (hash != null) {
-                        changes.put("encrypted_password", hash);
-                        changes.put("allow_password_change", false);
-                        changes.put("reset_password_token", null);
-                        changes.put("reset_password_sent_at", null);
-                    }
-                    changes.put("updated_at", Instant.ofEpochMilli(transactions.now()));
-                    OgiriAccount updated;
-                    try {
-                        updated = accounts.update(current.id(), changes);
-                    } catch (DuplicateKeyException duplicate) {
-                        throw taken(input, false);
-                    }
-                    if (hash != null && settings.removeTokensAfterPasswordReset())
-                        sessions.keepNewestLocked(signIn.subject(current));
-                    return new AccountChange(
-                            updated, sessions.liveLocked(signIn.subject(current), credential));
-                });
+        var result =
+                transactions.write(
+                        () -> {
+                            transactions.lock(signIn.subject(identity));
+                            var current =
+                                    accounts.lock(identity.id())
+                                            .orElseThrow(() -> failure(404, "User not found."));
+                            validate(input, current, false);
+                            var changes = new LinkedHashMap<>(input.attributes());
+                            boolean reconfirm =
+                                    input.email() != null
+                                            && !input.email().equals(current.email())
+                                            && settings.confirmable()
+                                            && settings.reconfirmable();
+                            if (reconfirm) changes.put("unconfirmed_email", input.email());
+                            else if (input.email() != null) {
+                                changes.put("email", input.email());
+                                changes.put("uid", input.email());
+                            }
+                            if (hash != null) {
+                                changes.put("encrypted_password", hash);
+                                changes.put("allow_password_change", false);
+                                changes.put("reset_password_token", null);
+                                changes.put("reset_password_sent_at", null);
+                            }
+                            changes.put("updated_at", Instant.ofEpochMilli(transactions.now()));
+                            OgiriAccount updated;
+                            try {
+                                updated = accounts.update(current.id(), changes);
+                            } catch (DuplicateKeyException duplicate) {
+                                throw taken(input, false);
+                            }
+                            if (hash != null && settings.removeTokensAfterPasswordReset())
+                                sessions.keepNewestLocked(signIn.subject(current));
+                            ActivationService.Delivery delivery =
+                                    reconfirm
+                                            ? activation.confirmLocked(
+                                                    updated,
+                                                    text(values, "confirm_success_url"),
+                                                    text(values, "config_name"))
+                                            : new ActivationService.Delivery(updated, null);
+                            return new Mutation(
+                                    new AccountChange(
+                                            delivery.account(),
+                                            sessions.liveLocked(
+                                                    signIn.subject(current), credential)),
+                                    delivery);
+                        });
+        result.delivery().verify(settings.paranoid());
+        return result.change();
     }
+
+    private record Mutation(AccountChange change, ActivationService.Delivery delivery) {}
 
     public void destroy(OgiriAccount identity) {
         transactions.write(
@@ -182,6 +222,21 @@ public final class RegistrationService {
         return settings.checkCurrentPasswordBeforeUpdate().equals("attributes")
                 || (settings.checkCurrentPasswordBeforeUpdate().equals("password")
                         && input.password() != null);
+    }
+
+    private String confirmationTarget(Map<String, ?> values, AccountInput input) {
+        try {
+            return activation.confirmationTarget(text(values, "confirm_success_url"));
+        } catch (DtaFailure failure) {
+            var body = new LinkedHashMap<>(failure.body());
+            body.put("status", "error");
+            body.put("data", submitted(input));
+            throw new DtaFailure(failure.status(), body);
+        }
+    }
+
+    private static String text(Map<String, ?> values, String name) {
+        return values.get(name) instanceof String value ? value : null;
     }
 
     public Map<String, Object> submitted(AccountInput input) {

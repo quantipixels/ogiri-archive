@@ -56,6 +56,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
     }
 
     /** Issue only after the caller has authenticated and authorized the full subject. */
+    @Override
     public IssuedSession issue(Subject subject, String client) {
         Objects.requireNonNull(subject, "subject");
         if (client == null || client.isBlank() || client.length() > 64 || client.indexOf(0) >= 0)
@@ -145,6 +146,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
     }
 
     /** One authoritative indexed read; revocation is visible on the next authentication. */
+    @Override
     public Optional<Session> authenticate(String token) {
         byte[] digest = Tokens.digest(token);
         if (digest == null) return Optional.empty();
@@ -163,6 +165,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
     }
 
     /** List live session metadata for an application-authorized complete subject. */
+    @Override
     public List<Session> list(Subject subject) {
         Objects.requireNonNull(subject, "subject");
         return read(
@@ -183,6 +186,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
     }
 
     /** Delete one owned session; foreign or absent identifiers return false. */
+    @Override
     public boolean revoke(Subject subject, UUID id) {
         Objects.requireNonNull(subject, "subject");
         Objects.requireNonNull(id, "id");
@@ -198,6 +202,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
     }
 
     /** Serialize with issuance and revoke existing sessions; this does not ban future login. */
+    @Override
     public int revokeAll(Subject subject) {
         Objects.requireNonNull(subject, "subject");
         return write(
@@ -214,6 +219,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
     /**
      * Bounded cleanup, safe with concurrent workers. Expiry enforcement never waits for cleanup.
      */
+    @Override
     public int cleanup(int batchSize) {
         if (batchSize < 1 || batchSize > 10_000)
             throw new IllegalArgumentException("batchSize must be between 1 and 10000");

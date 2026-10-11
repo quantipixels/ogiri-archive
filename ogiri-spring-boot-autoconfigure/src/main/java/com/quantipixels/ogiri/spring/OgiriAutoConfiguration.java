@@ -56,11 +56,10 @@ public final class OgiriAutoConfiguration {
         if (settings.changeHeadersOnEachRequest()
                 || !settings.batchRequestBufferThrottle().equals(java.time.Duration.ofSeconds(5)))
             throw new IllegalStateException("Ogiri rotation is not implemented in this checkpoint");
-        if (settings.lockable())
-            throw new IllegalStateException("Ogiri lockout is not implemented in this checkpoint");
-        if (settings.confirmable())
+
+        if (settings.cookieEnabled())
             throw new IllegalStateException(
-                    "Ogiri confirmation is not implemented in this checkpoint");
+                    "Ogiri cookie login CSRF is not implemented in this checkpoint");
         rejectUnimplementedCleanup(properties);
         return settings;
     }
@@ -126,8 +125,10 @@ public final class OgiriAutoConfiguration {
             AuthTransactions transactions,
             SessionRepository sessions,
             OgiriSettings settings,
-            com.quantipixels.ogiri.account.OgiriPasswords passwords) {
-        return new SignInService(accounts, transactions, sessions, settings, passwords.encoder());
+            com.quantipixels.ogiri.account.OgiriPasswords passwords,
+            com.quantipixels.ogiri.account.ActivationService activation) {
+        return new SignInService(
+                accounts, transactions, sessions, settings, passwords.encoder(), activation);
     }
 
     @Bean
@@ -152,9 +153,17 @@ public final class OgiriAutoConfiguration {
             OgiriSettings settings,
             com.quantipixels.ogiri.account.OgiriPasswords passwords,
             SignInService signIn,
-            com.quantipixels.ogiri.account.AccountValidator validator) {
+            com.quantipixels.ogiri.account.AccountValidator validator,
+            com.quantipixels.ogiri.account.ActivationService activation) {
         return new com.quantipixels.ogiri.account.RegistrationService(
-                accounts, transactions, sessions, settings, passwords.encoder(), signIn, validator);
+                accounts,
+                transactions,
+                sessions,
+                settings,
+                passwords.encoder(),
+                signIn,
+                validator,
+                activation);
     }
 
     @Bean
@@ -194,6 +203,19 @@ public final class OgiriAutoConfiguration {
             org.springframework.context.ApplicationEventPublisher events,
             com.quantipixels.ogiri.mail.OgiriMailer mailer) {
         return new com.quantipixels.ogiri.internal.MailDispatcher(events, mailer);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    com.quantipixels.ogiri.account.ActivationService ogiriActivation(
+            AccountStore accounts,
+            AuthTransactions transactions,
+            SessionRepository sessions,
+            OgiriSettings settings,
+            com.quantipixels.ogiri.internal.MailDispatcher mail,
+            com.quantipixels.ogiri.internal.PublicLinks links) {
+        return new com.quantipixels.ogiri.account.ActivationService(
+                accounts, transactions, sessions, settings, mail, links);
     }
 
     @Bean
@@ -266,8 +288,9 @@ public final class OgiriAutoConfiguration {
     OgiriEndpoints ogiriEndpoints(
             OgiriRuntime runtime,
             com.quantipixels.ogiri.account.RegistrationService registration,
-            com.quantipixels.ogiri.account.PasswordService passwords) {
-        return new OgiriEndpoints(runtime, registration, passwords);
+            com.quantipixels.ogiri.account.PasswordService passwords,
+            com.quantipixels.ogiri.account.ActivationService activation) {
+        return new OgiriEndpoints(runtime, registration, passwords, activation);
     }
 
     @Bean

@@ -28,14 +28,55 @@ public final class OgiriEndpoints {
     private final OgiriRuntime runtime;
     private final com.quantipixels.ogiri.account.RegistrationService registration;
     private final com.quantipixels.ogiri.account.PasswordService passwords;
+    private final com.quantipixels.ogiri.account.ActivationService activation;
 
     public OgiriEndpoints(
             OgiriRuntime runtime,
             com.quantipixels.ogiri.account.RegistrationService registration,
-            com.quantipixels.ogiri.account.PasswordService passwords) {
+            com.quantipixels.ogiri.account.PasswordService passwords,
+            com.quantipixels.ogiri.account.ActivationService activation) {
         this.runtime = runtime;
         this.registration = registration;
         this.passwords = passwords;
+        this.activation = activation;
+    }
+
+    @PostMapping(path = "/confirmation", consumes = "application/json")
+    public Map<String, Object> confirmation(@RequestBody Map<String, Object> values) {
+        return activation.confirmation(values);
+    }
+
+    @PostMapping(path = "/confirmation", consumes = "application/x-www-form-urlencoded")
+    public Map<String, Object> confirmationForm(@RequestParam Map<String, String> values) {
+        return activation.confirmation(values);
+    }
+
+    @GetMapping("/confirmation")
+    public ResponseEntity<Void> confirm(
+            @RequestParam(required = false) String confirmation_token,
+            @RequestParam(required = false) String redirect_url) {
+        return ResponseEntity.status(302)
+                .location(java.net.URI.create(activation.confirm(confirmation_token, redirect_url)))
+                .build();
+    }
+
+    @PostMapping(path = "/unlock", consumes = "application/json")
+    public Map<String, Object> unlock(@RequestBody Map<String, Object> values) {
+        return activation.unlock(values);
+    }
+
+    @PostMapping(path = "/unlock", consumes = "application/x-www-form-urlencoded")
+    public Map<String, Object> unlockForm(@RequestParam Map<String, String> values) {
+        return activation.unlock(values);
+    }
+
+    @GetMapping("/unlock")
+    public ResponseEntity<Void> unlockLink(
+            @RequestParam(required = false) String unlock_token,
+            @RequestParam(required = false) String config) {
+        return ResponseEntity.status(302)
+                .location(java.net.URI.create(activation.unlock(unlock_token, config)))
+                .build();
     }
 
     @PostMapping(path = "/password", consumes = "application/json")
@@ -124,7 +165,8 @@ public final class OgiriEndpoints {
     public Map<String, Object> register(
             @RequestBody Map<String, Object> values, HttpServletRequest request) {
         var result = registration.register(values);
-        ResponseCredentials.issued(request, result.issued(), result.account().uid());
+        if (result.issued() != null)
+            ResponseCredentials.issued(request, result.issued(), result.account().uid());
         return Map.of("status", "success", "data", result.account().view(false));
     }
 
@@ -225,7 +267,8 @@ public final class OgiriEndpoints {
                         .signIn(
                                 login == null ? null : login.email(),
                                 login == null ? null : login.password());
-        ResponseCredentials.issued(request, result.issued(), result.account().uid());
+        if (result.issued() != null)
+            ResponseCredentials.issued(request, result.issued(), result.account().uid());
         return Map.of("data", result.account().view(true));
     }
 

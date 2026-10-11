@@ -78,7 +78,7 @@ class DtaAuthenticationTest {
                                         Instant.ofEpochMilli(tx.now()),
                                         "updated_at",
                                         Instant.ofEpochMilli(tx.now()))));
-        var signIn = new SignInService(accounts, tx, sessions, settings, passwords);
+        var signIn = new SignInService(accounts, tx, sessions, settings, passwords, null);
         runtime = new OgiriRuntime(settings, tx, sessions, accounts, signIn);
         login = signIn.signIn(" OWNER@example.com ", "test-password");
     }
