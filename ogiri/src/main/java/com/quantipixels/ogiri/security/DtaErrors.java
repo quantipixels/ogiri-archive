@@ -28,6 +28,41 @@ public final class DtaErrors {
                 Map.of("errors", List.of("You need to sign in or sign up before continuing.")));
     }
 
+    public static void unauthorized(
+            jakarta.servlet.http.HttpServletRequest request,
+            HttpServletResponse response,
+            String base)
+            throws IOException {
+        String path = OgiriConfigurer.path(request);
+        String mounted = OgiriConfigurer.mount(request, base);
+        if (path.equals(mounted + "/validate_token")) {
+            write(
+                    response,
+                    401,
+                    Map.of("success", false, "errors", List.of("Invalid login credentials")));
+        } else if (path.equals(mounted + "/sign_out")) {
+            write(
+                    response,
+                    404,
+                    Map.of(
+                            "success",
+                            false,
+                            "errors",
+                            List.of("User was not found or was not logged in.")));
+        } else if (path.equals(mounted) || path.equals(mounted + "/")) {
+            String message =
+                    request.getMethod().equals("DELETE")
+                            ? "Unable to locate account for destruction."
+                            : "User not found.";
+            write(
+                    response,
+                    404,
+                    Map.of("success", false, "status", "error", "errors", List.of(message)));
+        } else {
+            unauthorized(response);
+        }
+    }
+
     public static void forbidden(HttpServletResponse response) throws IOException {
         write(
                 response,

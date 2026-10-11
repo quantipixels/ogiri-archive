@@ -18,7 +18,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 
 @SpringBootTest(
-        classes = {Application.class, HostChainTest.Host.class},
+        classes = {Application.class, HostChainTest.Host.class, HostChainTest.BasicHost.class},
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "spring.datasource.url=${OGIRI_TEST_JDBC_URL}",
@@ -35,14 +35,61 @@ class HostChainTest {
         @Bean
         SecurityFilterChain hostChain(HttpSecurity http, OgiriRuntime runtime) throws Exception {
             http.with(OgiriConfigurer.ogiri(runtime), config -> {});
+            http.httpBasic(org.springframework.security.config.Customizer.withDefaults());
             return http.authorizeHttpRequests(
                             routes ->
-                                    routes.requestMatchers("/auth/**")
+                                    routes.dispatcherTypeMatchers(
+                                                    jakarta.servlet.DispatcherType.ERROR)
+                                            .permitAll()
+                                            .requestMatchers("/auth/**")
                                             .permitAll()
                                             .anyRequest()
                                             .authenticated())
                     .build();
         }
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    @org.springframework.web.bind.annotation.RestController
+    static class BasicHost {
+        @Bean
+        org.springframework.security.core.userdetails.UserDetailsService basicUsers() {
+            return new org.springframework.security.provisioning.InMemoryUserDetailsManager(
+                    org.springframework.security.core.userdetails.User.withUsername("host")
+                            .password("{noop}host-password")
+                            .roles("HOST")
+                            .build());
+        }
+
+        @org.springframework.web.bind.annotation.GetMapping("/host")
+        public java.util.Map<String, String> host(
+                org.springframework.security.core.Authentication authentication) {
+            return java.util.Map.of("name", authentication.getName());
+        }
+    }
+
+    @Test
+    void basicIdentitySurvivesAbsentOgiriAndMixedCredentialsAreRejected() throws Exception {
+        String basic =
+                java.util.Base64.getEncoder()
+                        .encodeToString(
+                                "host:host-password"
+                                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var builder =
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/host"))
+                        .header("Authorization", "Basic " + basic);
+        var client = HttpClient.newHttpClient();
+        var response = client.send(builder.GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals("{\"name\":\"host\"}", response.body());
+        response =
+                client.send(
+                        builder.header("uid", "demo@example.com")
+                                .header("access-token", "stale")
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertEquals(401, response.statusCode(), response.body());
     }
 
     @Test

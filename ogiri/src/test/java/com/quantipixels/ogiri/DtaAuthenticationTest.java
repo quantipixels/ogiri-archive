@@ -2,9 +2,7 @@
 package com.quantipixels.ogiri;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.quantipixels.ogiri.account.DevisePasswordEncoder;
 import com.quantipixels.ogiri.account.JdbcDeviseAccountStore;
@@ -136,23 +134,14 @@ class DtaAuthenticationTest {
             request.addHeader("uid", login.account().uid());
             request.addHeader("client", login.issued().session().client());
             request.addHeader("access-token", login.issued().token());
+            var response = new MockHttpServletResponse();
             filter.doFilter(
                     request,
-                    new MockHttpServletResponse(),
-                    (req, response) -> {
-                        var resolved = SecurityContextHolder.getContext().getAuthentication();
-                        assertEquals(
-                                login.account().id(),
-                                ((com.quantipixels.ogiri.account.OgiriAccount)
-                                                resolved.getPrincipal())
-                                        .id());
-                        assertTrue(
-                                resolved.getAuthorities()
-                                        .contains(new SimpleGrantedAuthority("ROLE_USER")));
-                        assertFalse(
-                                resolved.getAuthorities()
-                                        .contains(new SimpleGrantedAuthority("ROLE_ADMIN")));
+                    response,
+                    (req, res) -> {
+                        throw new AssertionError("Mixed identities must not enter the controller");
                     });
+            assertEquals(401, response.getStatus());
             SecurityContextHolder.clearContext();
         }
     }

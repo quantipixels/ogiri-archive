@@ -50,7 +50,23 @@ public final class OgiriAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     OgiriSettings ogiriSettings(OgiriProperties properties) {
-        return properties.settings();
+        var settings = properties.settings();
+        if (settings.changeHeadersOnEachRequest()
+                || !settings.batchRequestBufferThrottle().equals(java.time.Duration.ofSeconds(5)))
+            throw new IllegalStateException("Ogiri rotation is not implemented in this checkpoint");
+        if (settings.lockable())
+            throw new IllegalStateException("Ogiri lockout is not implemented in this checkpoint");
+        if (settings.confirmable())
+            throw new IllegalStateException(
+                    "Ogiri confirmation is not implemented in this checkpoint");
+        rejectUnimplementedCleanup(properties);
+        return settings;
+    }
+
+    private static void rejectUnimplementedCleanup(OgiriProperties properties) {
+        if (properties.cleanup().interval() != null || properties.cleanup().batchSize() != 1000)
+            throw new IllegalStateException(
+                    "Ogiri scheduled cleanup is not implemented in this checkpoint");
     }
 
     @Bean
@@ -77,8 +93,8 @@ public final class OgiriAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    DevisePasswordEncoder ogiriPasswordEncoder() {
-        return new DevisePasswordEncoder();
+    com.quantipixels.ogiri.account.OgiriPasswords ogiriPasswordEncoder() {
+        return new com.quantipixels.ogiri.account.OgiriPasswords(new DevisePasswordEncoder());
     }
 
     @Bean
@@ -103,19 +119,8 @@ public final class OgiriAutoConfiguration {
             AuthTransactions transactions,
             JdbcSessions sessions,
             OgiriSettings settings,
-            DevisePasswordEncoder passwords) {
-        return new SignInService(accounts, transactions, sessions, settings, passwords);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider ogiriTokenProvider(
-            AccountStore accounts,
-            AuthTransactions transactions,
-            JdbcSessions sessions,
-            OgiriSettings settings) {
-        return new com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider(
-                accounts, transactions, sessions, settings);
+            com.quantipixels.ogiri.account.OgiriPasswords passwords) {
+        return new SignInService(accounts, transactions, sessions, settings, passwords.encoder());
     }
 
     @Bean
@@ -124,7 +129,18 @@ public final class OgiriAutoConfiguration {
     org.springframework.security.authentication.AuthenticationManagerResolver<
                     jakarta.servlet.http.HttpServletRequest>
             ogiriAuthenticationManagers(
-                    com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider provider) {
+                    ObjectProvider<com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider>
+                            providers,
+                    AccountStore accounts,
+                    AuthTransactions transactions,
+                    JdbcSessions sessions,
+                    OgiriSettings settings) {
+        var provider =
+                providers.getIfAvailable(
+                        () ->
+                                new com.quantipixels.ogiri.security
+                                        .OgiriTokenAuthenticationProvider(
+                                        accounts, transactions, sessions, settings));
         var manager = new org.springframework.security.authentication.ProviderManager(provider);
         return request -> manager;
     }
@@ -156,8 +172,8 @@ public final class OgiriAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(SecurityFilterChain.class)
-    SecurityFilterChain ogiriSecurityFilterChain(HttpSecurity http, OgiriRuntime runtime)
-            throws Exception {
+    SecurityFilterChain ogiriSecurityFilterChain(
+            HttpSecurity http, OgiriRuntime runtime, OgiriProperties properties) throws Exception {
         http.with(OgiriConfigurer.ogiri(runtime), config -> {});
         return http.authorizeHttpRequests(
                         routes ->
@@ -165,9 +181,11 @@ public final class OgiriAutoConfiguration {
                                         .permitAll()
                                         .requestMatchers(
                                                 request ->
-                                                        OgiriConfigurer.endpoint(
-                                                                request,
-                                                                runtime.settings().basePath()))
+                                                        properties.endpoints().enabled()
+                                                                && OgiriConfigurer.publicWorkflow(
+                                                                        request,
+                                                                        runtime.settings()
+                                                                                .basePath()))
                                         .permitAll()
                                         .anyRequest()
                                         .authenticated())

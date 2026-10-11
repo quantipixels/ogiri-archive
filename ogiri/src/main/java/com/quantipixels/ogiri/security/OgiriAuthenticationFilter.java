@@ -46,42 +46,59 @@ public final class OgiriAuthenticationFilter extends OncePerRequestFilter {
             HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         var previous = SecurityContextHolder.getContext();
-        var context = SecurityContextHolder.createEmptyContext();
-        SecurityContextHolder.setContext(context);
         try {
-            if (!OgiriConfigurer.publicWorkflow(request, runtime.settings().basePath())) {
-                var candidate = converter.convert(request);
-                if (candidate != null) {
-                    try {
-                        var authentication =
-                                (OgiriAuthentication)
-                                        managers.resolve(request).authenticate(candidate);
-                        context.setAuthentication(authentication);
-                        ResponseCredentials credentials =
-                                ResponseCredentials.of(
-                                        authentication.session(),
-                                        ((DtaAuthenticationToken) candidate)
-                                                .getCredentials()
-                                                .token(),
-                                        authentication.getPrincipal().uid());
-                        request.setAttribute(ResponseCredentials.ATTRIBUTE, credentials);
-                        if (runtime.settings().cookieEnabled()
-                                && request.getAttribute(CsrfToken.class.getName())
-                                        instanceof CsrfToken csrf) {
-                            csrf.getToken();
-                        }
-                    } catch (BadCredentialsException invalid) {
-                        context.setAuthentication(null);
-                    } catch (SessionStoreException failure) {
-                        DtaErrors.unavailable(response);
-                        return;
-                    }
+            var candidate =
+                    OgiriConfigurer.publicWorkflow(request, runtime.settings().basePath())
+                            ? null
+                            : converter.convert(request);
+            if (candidate != null) {
+                var existing = previous.getAuthentication();
+                if (existing != null
+                        && existing.isAuthenticated()
+                        && !(existing
+                                instanceof
+                                org.springframework.security.authentication
+                                        .AnonymousAuthenticationToken)) {
+                    DtaErrors.unauthorized(response);
+                    return;
                 }
+                var context = SecurityContextHolder.createEmptyContext();
+                SecurityContextHolder.setContext(context);
+                if (!authenticate(request, response, candidate, context)) return;
+                repository.saveContext(context, request, response);
             }
-            repository.saveContext(context, request, response);
             chain.doFilter(request, response);
         } finally {
             SecurityContextHolder.setContext(previous);
         }
+    }
+
+    private boolean authenticate(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            org.springframework.security.core.Authentication candidate,
+            org.springframework.security.core.context.SecurityContext context)
+            throws IOException {
+        try {
+            var authentication =
+                    (OgiriAuthentication) managers.resolve(request).authenticate(candidate);
+            context.setAuthentication(authentication);
+            request.setAttribute(
+                    ResponseCredentials.ATTRIBUTE,
+                    ResponseCredentials.of(
+                            authentication.session(),
+                            ((DtaAuthenticationToken) candidate).getCredentials().token(),
+                            authentication.getPrincipal().uid()));
+            if (runtime.settings().cookieEnabled()
+                    && request.getAttribute(CsrfToken.class.getName()) instanceof CsrfToken csrf) {
+                csrf.getToken();
+            }
+        } catch (BadCredentialsException invalid) {
+            context.setAuthentication(null);
+        } catch (SessionStoreException failure) {
+            DtaErrors.unavailable(response);
+            return false;
+        }
+        return true;
     }
 }

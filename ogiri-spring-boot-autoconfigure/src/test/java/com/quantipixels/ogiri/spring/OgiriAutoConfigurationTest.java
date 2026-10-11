@@ -99,4 +99,18 @@ class OgiriAutoConfigurationTest {
                                 () -> new AuthTransactions(source, manager))
                         .getMessage());
     }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "ogiri.change-headers-on-each-request=true,Ogiri rotation is not implemented in this checkpoint",
+        "ogiri.batch-request-buffer-throttle=10s,Ogiri rotation is not implemented in this checkpoint",
+        "ogiri.lockable=true,Ogiri lockout is not implemented in this checkpoint",
+        "ogiri.confirmable=true,Ogiri confirmation is not implemented in this checkpoint",
+        "ogiri.cleanup.interval=1m,Ogiri scheduled cleanup is not implemented in this checkpoint"
+    })
+    void unfinishedConfiguredBehaviorFailsExplicitly(String property, String cause) {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues(property)
+                .run(context -> assertThat(context.getStartupFailure()).hasRootCauseMessage(cause));
+    }
 }
