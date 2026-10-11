@@ -29,7 +29,8 @@ import tools.jackson.databind.json.JsonMapper;
             "spring.datasource.hikari.maximum-pool-size=1",
             "spring.profiles.active=demo",
             "ogiri.cookie-enabled=true",
-            "ogiri.cookie-secure=false"
+            "ogiri.cookie-secure=false",
+            "ogiri.change-headers-on-each-request=true"
         })
 class CookieConsumerTest {
     @Value("${local.server.port}")
@@ -95,10 +96,105 @@ class CookieConsumerTest {
     }
 
     @Test
+    void registrationCsrfRejectsFormAndJsonBeforeWritingAccountsOrSessions() throws Exception {
+        for (String path : java.util.List.of("/auth", "/admin_auth/")) {
+            String table = path.startsWith("/admin") ? "admins" : "users";
+            String authName = path.startsWith("/admin") ? "admin_auth_cookie" : "auth_cookie";
+            for (boolean form : new boolean[] {true, false}) {
+                var body =
+                        Map.of(
+                                "email",
+                                "csrf-" + java.util.UUID.randomUUID() + "@example.com",
+                                "password",
+                                "test-password",
+                                "password_confirmation",
+                                "test-password");
+                int accounts = jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
+                int sessions =
+                        jdbc.queryForObject("SELECT COUNT(*) FROM ogiri_sessions", Integer.class);
+                var rejected = registration(path, body, Map.of(), form);
+                assertEquals(403, rejected.statusCode(), rejected.body());
+                assertEquals(
+                        Map.of("success", false, "errors", java.util.List.of("Invalid CSRF token")),
+                        json.readValue(rejected.body(), Map.class));
+                assertEquals(
+                        accounts,
+                        jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class));
+                assertEquals(
+                        sessions,
+                        jdbc.queryForObject("SELECT COUNT(*) FROM ogiri_sessions", Integer.class));
+                assertFalse(
+                        rejected.headers().allValues("Set-Cookie").stream()
+                                .anyMatch(c -> c.startsWith(authName + "=")));
+                String csrf = cookie(request("GET", path, null, Map.of()), "XSRF-TOKEN");
+                var accepted =
+                        registration(
+                                path,
+                                body,
+                                Map.of("Cookie", csrf, "X-XSRF-TOKEN", value(csrf)),
+                                form);
+                assertEquals(200, accepted.statusCode(), accepted.body());
+                assertTrue(cookie(accepted, authName).startsWith(authName + "="));
+                assertEquals(
+                        accounts + 1,
+                        jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class));
+                assertEquals(
+                        sessions + 1,
+                        jdbc.queryForObject("SELECT COUNT(*) FROM ogiri_sessions", Integer.class));
+            }
+        }
+    }
+
+    @Test
+    void lateBatchResponseCannotOverwriteRotatedAuthCookie() throws Exception {
+        var issued = signup("/auth");
+        String original = cookie(issued, "auth_cookie");
+        String client = issued.headers().firstValue("client").orElseThrow();
+        jdbc.update("UPDATE ogiri_sessions SET rotated_at = 0 WHERE client = ?", client);
+        var rotated = request("GET", "/me", null, Map.of("Cookie", original));
+        assertEquals(200, rotated.statusCode(), rotated.body());
+        String current = cookie(rotated, "auth_cookie");
+        assertNotEquals(original, current);
+        var late = request("GET", "/me", null, Map.of("Cookie", original));
+        assertEquals(200, late.statusCode(), late.body());
+        assertTrue(late.headers().firstValue("access-token").orElseThrow().isBlank());
+        assertFalse(
+                late.headers().allValues("Set-Cookie").stream()
+                        .anyMatch(c -> c.startsWith("auth_cookie=")),
+                late.headers().toString());
+        jdbc.update("UPDATE ogiri_sessions SET rotated_at = 0 WHERE client = ?", client);
+        assertEquals(401, request("GET", "/me", null, Map.of("Cookie", original)).statusCode());
+        assertEquals(200, request("GET", "/me", null, Map.of("Cookie", current)).statusCode());
+    }
+
+    private HttpResponse<String> registration(
+            String path, Map<String, String> body, Map<String, String> headers, boolean form)
+            throws Exception {
+        if (!form) return request("POST", path, body, headers);
+        String encoded =
+                body.entrySet().stream()
+                        .map(
+                                e ->
+                                        java.net.URLEncoder.encode(
+                                                        e.getKey(), StandardCharsets.UTF_8)
+                                                + "="
+                                                + java.net.URLEncoder.encode(
+                                                        e.getValue(), StandardCharsets.UTF_8))
+                        .collect(java.util.stream.Collectors.joining("&"));
+        var builder =
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+                        .header("Content-Type", "application/x-www-form-urlencoded");
+        headers.forEach(builder::header);
+        return http.send(
+                builder.POST(HttpRequest.BodyPublishers.ofString(encoded)).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
     void cookieUnsafeRequestsRejectMissingWrongAndMalformedHeaderBypasses() throws Exception {
         var issued = signup("/auth");
         String auth = cookie(issued, "auth_cookie");
-        String csrf = cookie(issued, "XSRF-TOKEN");
+        String csrf = cookie(request("GET", "/auth/sign_in", null, Map.of()), "XSRF-TOKEN");
         String cookies = auth + "; " + csrf;
         for (var extra :
                 java.util.List.of(
@@ -206,7 +302,7 @@ class CookieConsumerTest {
         for (String target : java.util.List.of("/auth/sessions/", "/auth/sessions", "/auth")) {
             var issued = signup("/auth");
             String auth = cookie(issued, "auth_cookie");
-            String csrf = cookie(issued, "XSRF-TOKEN");
+            String csrf = cookie(request("GET", "/auth/sign_in", null, Map.of()), "XSRF-TOKEN");
             String path =
                     target.endsWith("/")
                             ? target + issued.headers().firstValue("client").orElseThrow()
@@ -237,6 +333,7 @@ class CookieConsumerTest {
     }
 
     private HttpResponse<String> signup(String path) throws Exception {
+        String csrf = cookie(request("GET", path, null, Map.of()), "XSRF-TOKEN");
         var response =
                 request(
                         "POST",
@@ -248,7 +345,11 @@ class CookieConsumerTest {
                                 "test-password",
                                 "password_confirmation",
                                 "test-password"),
-                        Map.of("Cookie", "auth_cookie=stale; admin_auth_cookie=stale"));
+                        Map.of(
+                                "Cookie",
+                                csrf + "; auth_cookie=stale; admin_auth_cookie=stale",
+                                "X-XSRF-TOKEN",
+                                value(csrf)));
         assertEquals(200, response.statusCode(), response.body());
         return response;
     }

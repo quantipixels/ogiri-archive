@@ -28,13 +28,13 @@ public final class OgiriCsrfTokenRepository implements CsrfTokenRepository {
                     cookie ->
                             cookie.secure(settings.cookieSecure())
                                     .sameSite(settings.cookieSameSite()));
-            configured.put(runtime.responseCredentialsAttribute(), repository);
+            configured.put(settings.realm(), repository);
         }
         repositories = Map.copyOf(configured);
     }
 
     private CookieCsrfTokenRepository repository(HttpServletRequest request) {
-        return repositories.get(realms.resolve(request).responseCredentialsAttribute());
+        return repositories.get(realms.resolve(request).settings().realm());
     }
 
     @Override

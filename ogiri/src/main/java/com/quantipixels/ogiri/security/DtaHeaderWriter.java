@@ -44,6 +44,7 @@ public final class DtaHeaderWriter implements HeaderWriter {
         response.setHeader("Cache-Control", "no-store");
         String encoded = json.writeValueAsString(credentials.authorizationHeaders());
         if (settings.cookieEnabled()) {
+            if (credentials.batch()) return;
             response.addHeader(
                     "Set-Cookie",
                     new DtaHeaderWriter(settings)

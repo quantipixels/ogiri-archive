@@ -1,6 +1,6 @@
 # Ogiri 0.0.1
 
-Ogiri provides opaque bearer sessions: no JWTs, no cookies, and immediate server-side revocation. Every authenticated request checks the stored session. Keep your accounts and authorization rules; Ogiri handles the session lifecycle.
+Ogiri provides opaque bearer sessions: no JWTs and immediate server-side revocation, with optional cookie transport. Every authenticated request checks the stored session. Keep your accounts and authorization rules; Ogiri handles the session lifecycle.
 
 ## One protocol, three implementations
 
@@ -14,7 +14,7 @@ All three follow the [shared protocol](contracts/PROTOCOL.md) and [HTTP conforma
 
 This is a new, unpublished prototype API and schema. Earlier v3/v4 credentials and database layouts are incompatible; use the application-owned migration and require existing users to sign in again.
 
-The Spring prototype implements sign-in, sign-out, validation, devices, registration, password recovery, confirmation, lockout, rotation, account updates and deletion, and multiple account realms. Enabling unfinished cookie mode or scheduled cleanup fails startup explicitly. See the [Spring architecture](docs/architecture/spring.md).
+The Spring prototype implements sign-in, sign-out, validation, devices, registration, password recovery, confirmation, lockout, rotation, account updates and deletion, and multiple account realms. Cookie mode uses HttpOnly auth cookies and double-submit CSRF for sign-in, registration that signs in, and unsafe cookie-authenticated requests. Scheduled cleanup remains unfinished and fails startup when enabled. See the [Spring architecture](docs/architecture/spring.md).
 
 ## Adopt the Spring library
 

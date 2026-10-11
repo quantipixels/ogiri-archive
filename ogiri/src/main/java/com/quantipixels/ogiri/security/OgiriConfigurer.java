@@ -2,6 +2,7 @@
 package com.quantipixels.ogiri.security;
 
 import com.quantipixels.ogiri.security.internal.DtaAuthenticationConverter;
+import com.quantipixels.ogiri.security.internal.OgiriCsrfRequestHandler;
 import com.quantipixels.ogiri.security.internal.OgiriCsrfTokenRepository;
 import com.quantipixels.ogiri.security.internal.OgiriRealmAuthenticationFilter;
 import com.quantipixels.ogiri.security.internal.OgiriSecurityContextRepository;
@@ -12,7 +13,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
-import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.web.cors.CorsConfiguration;
 
 public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigurer, HttpSecurity> {
@@ -70,38 +71,7 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
                         csrf ->
                                 csrf.csrfTokenRepository(new OgiriCsrfTokenRepository(realms))
                                         .csrfTokenRequestHandler(
-                                                new org.springframework.security.web.csrf
-                                                        .CsrfTokenRequestHandler() {
-                                                    @Override
-                                                    public void handle(
-                                                            HttpServletRequest request,
-                                                            jakarta.servlet.http.HttpServletResponse
-                                                                    response,
-                                                            java.util.function.Supplier<
-                                                                            org.springframework
-                                                                                    .security.web
-                                                                                    .csrf.CsrfToken>
-                                                                    token) {
-                                                        var handler =
-                                                                new CsrfTokenRequestAttributeHandler();
-                                                        if (realms.resolve(request)
-                                                                .settings()
-                                                                .cookieEnabled())
-                                                            handler.setCsrfRequestAttributeName(
-                                                                    null);
-                                                        handler.handle(request, response, token);
-                                                    }
-
-                                                    @Override
-                                                    public String resolveCsrfTokenValue(
-                                                            HttpServletRequest request,
-                                                            org.springframework.security.web.csrf
-                                                                            .CsrfToken
-                                                                    token) {
-                                                        return request.getHeader(
-                                                                token.getHeaderName());
-                                                    }
-                                                })
+                                                new OgiriCsrfRequestHandler(realms))
                                         .requireCsrfProtectionMatcher(this::cookieCsrfRequired))
                 .exceptionHandling(
                         config ->
@@ -115,19 +85,8 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
                                                                         .basePath()))
                                         .accessDeniedHandler(
                                                 (request, response, failure) -> {
-                                                    if (failure
-                                                            instanceof
-                                                            org.springframework.security.web.csrf
-                                                                    .CsrfException) {
-                                                        DtaErrors.write(
-                                                                response,
-                                                                403,
-                                                                java.util.Map.of(
-                                                                        "success",
-                                                                        false,
-                                                                        "errors",
-                                                                        List.of(
-                                                                                "Invalid CSRF token")));
+                                                    if (failure instanceof CsrfException) {
+                                                        DtaErrors.csrf(response);
                                                     } else {
                                                         DtaErrors.forbidden(response);
                                                     }
@@ -141,10 +100,8 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
                 || List.of("GET", "HEAD", "OPTIONS", "TRACE").contains(request.getMethod())) {
             return false;
         }
-        // Sign-in creates ambient credentials even when the request has no auth cookie yet.
-        if (realms.endpointsEnabled(request)
-                && path(request)
-                        .equals(mount(request, runtime.settings().basePath()) + "/sign_in")) {
+        // Session issuance creates ambient credentials even without an incoming auth cookie.
+        if (realms.endpointsEnabled(request) && canIssueAuthCookie(request, runtime)) {
             return true;
         }
         if (realms.endpointsEnabled(request)
@@ -153,6 +110,15 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
         }
         var candidate = new DtaAuthenticationConverter(runtime.settings()).convert(request);
         return candidate instanceof DtaAuthenticationToken token && token.getCredentials().cookie();
+    }
+
+    private static boolean canIssueAuthCookie(HttpServletRequest request, OgiriRuntime runtime) {
+        if (!request.getMethod().equals("POST")) return false;
+        String base = mount(request, runtime.settings().basePath());
+        String path = path(request);
+        return path.equals(base + "/sign_in")
+                || (!runtime.settings().confirmable()
+                        && (path.equals(base) || path.equals(base + "/")));
     }
 
     @Override
