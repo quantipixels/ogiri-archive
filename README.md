@@ -26,7 +26,7 @@ The Spring prototype implements sign-in, sign-out, validation, devices, registra
 </dependency>
 ```
 
-The prototype is not published yet. The repository's `bash scripts/platform/java.sh ci` builds the project and tests an independent consumer using an isolated artifact cache. It does not install third-party artifacts into your Maven cache. Add PostgreSQL or MySQL's JDBC driver to your application and configure `spring.datasource.*` normally. Runtime dependency versions in the sample and library manage Jackson 3.1.7 and Tomcat 11.0.26; an adopter's dependency management must also retain those patched versions.
+The dependency-only starter is a conventional JAR. The prototype is not published yet. The repository's `bash scripts/platform/java.sh ci` builds the project and tests an independent consumer using an isolated artifact cache. It does not install third-party artifacts into your Maven cache. Add PostgreSQL or MySQL's JDBC driver to your application and configure `spring.datasource.*` normally. Runtime dependency versions in the sample and library manage Jackson 3.1.7 and Tomcat 11.0.26; an adopter's dependency management must also retain those patched versions.
 
 Apply `META-INF/ogiri/ogiri-postgresql.sql` or `ogiri-mysql.sql` from the core JAR through an application-owned migration. For a new application, also apply the corresponding `users-<engine>.sql`. Existing Devise users tables can be retained; normalize migrated email values as Devise does. Ogiri ignores the old users.tokens column and never runs DDL at startup. Existing DTA session tokens require a new sign-in. Plain Devise bcrypt hashes verify unchanged; new hashes remain plain bcrypt, cost 12, with the bcrypt UTF-8 72-byte truncation rule.
 

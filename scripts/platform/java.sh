@@ -28,7 +28,7 @@ for name in ('ogiri-parent','ogiri','ogiri-spring-boot-autoconfigure','ogiri-spr
     dest=cache/'com/quantipixels/ogiri'/name/version
     dest.mkdir(parents=True,exist_ok=True)
     shutil.copyfile('pom.xml' if name=='ogiri-parent' else f'{name}/pom.xml',dest/f'{name}-{version}.pom')
-    if name in ('ogiri','ogiri-spring-boot-autoconfigure'):
+    if name != 'ogiri-parent':
         shutil.copyfile(f'{name}/target/{name}-{version}.jar',dest/f'{name}-{version}.jar')
 settings=ET.Element('settings',xmlns='http://maven.apache.org/SETTINGS/1.2.0')
 ET.SubElement(settings,'localRepository').text=str(cache)
