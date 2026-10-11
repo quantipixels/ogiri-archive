@@ -26,6 +26,7 @@ import tools.jackson.databind.json.JsonMapper;
             "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
             "spring.profiles.active=demo",
             "ogiri.paranoid=true",
+            "ogiri.redirect-allowlist=https://client.example.test/*",
             "ogiri.confirmable=true",
             "ogiri.lockable=true"
         })
@@ -126,6 +127,35 @@ class ParanoidMailTest {
             }
         } finally {
             mail.fail = false;
+        }
+    }
+
+    @Test
+    void confirmationRedirectValidationDoesNotRevealAccountExistence() throws Exception {
+        String email = "paranoid-redirect-" + java.util.UUID.randomUUID() + "@example.com";
+        assertEquals(
+                200,
+                post(
+                                "",
+                                Map.of(
+                                        "email",
+                                        email,
+                                        "password",
+                                        "test-password",
+                                        "password_confirmation",
+                                        "test-password",
+                                        "confirm_success_url",
+                                        "https://client.example.test/done"))
+                        .statusCode());
+        for (String redirect : java.util.List.of("https://evil.test/", "not-a-url")) {
+            var known = post("/confirmation", Map.of("email", email, "redirect_url", redirect));
+            var unknown =
+                    post(
+                            "/confirmation",
+                            Map.of("email", "unknown-" + email, "redirect_url", redirect));
+            assertEquals(422, known.statusCode(), known.body());
+            assertEquals(known.statusCode(), unknown.statusCode(), unknown.body());
+            assertEquals(known.body(), unknown.body());
         }
     }
 

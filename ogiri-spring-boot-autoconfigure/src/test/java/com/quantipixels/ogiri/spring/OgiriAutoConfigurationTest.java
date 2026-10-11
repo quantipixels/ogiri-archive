@@ -143,6 +143,61 @@ class OgiriAutoConfigurationTest {
                                                 "Ogiri realm names and mounts must be distinct and non-overlapping"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"users", "admins"})
+    @Tag("database")
+    void duplicateRealmTablesFailBeforeServingRequests(String table) {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues(
+                        "ogiri.realms.admins.base-path=/admin_auth",
+                        "ogiri.realms.staff.base-path=/staff_auth",
+                        "ogiri.realms.staff.account.table=" + table)
+                .withPropertyValues(
+                        table.equals("admins")
+                                ? "ogiri.realms.admins.account.table=admins"
+                                : "ogiri.account.table=users")
+                .run(
+                        context ->
+                                assertThat(context.getStartupFailure())
+                                        .hasRootCauseMessage(
+                                                "Ogiri realms must use distinct account tables; configure ogiri.realms."
+                                                        + (table.equals("users")
+                                                                ? "admins"
+                                                                : "staff")
+                                                        + ".account.table or an explicit "
+                                                        + (table.equals("users")
+                                                                ? "admins"
+                                                                : "staff")
+                                                        + "OgiriAccountStore bean"));
+    }
+
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    static class SingleRuntimeChain {
+        @org.springframework.context.annotation.Bean
+        org.springframework.security.web.SecurityFilterChain hostChain(
+                org.springframework.security.config.annotation.web.builders.HttpSecurity http,
+                com.quantipixels.ogiri.security.OgiriRuntime runtime)
+                throws Exception {
+            http.with(com.quantipixels.ogiri.security.OgiriConfigurer.ogiri(runtime), config -> {});
+            return http.authorizeHttpRequests(routes -> routes.anyRequest().permitAll()).build();
+        }
+    }
+
+    @Test
+    @Tag("database")
+    void singleRuntimeChainRefusesAdditionalRealmMounts() {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withUserConfiguration(SingleRuntimeChain.class)
+                .withPropertyValues(
+                        "ogiri.realms.admins.base-path=/admin_auth",
+                        "ogiri.realms.admins.account.table=admins")
+                .run(
+                        context ->
+                                assertThat(context.getStartupFailure())
+                                        .hasRootCauseMessage(
+                                                "OgiriConfigurer.ogiri(runtime) cannot be used with additional realms; use OgiriConfigurer.ogiri(realms)"));
+    }
+
     @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
     static class RealmStoreConfiguration {
         @org.springframework.context.annotation.Bean(defaultCandidate = false)
@@ -158,9 +213,7 @@ class OgiriAutoConfigurationTest {
     void realmStoreDoesNotReplaceTheRootStore() {
         runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
                 .withUserConfiguration(RealmStoreConfiguration.class)
-                .withPropertyValues(
-                        "ogiri.realms.admins.base-path=/admin_auth",
-                        "ogiri.realms.admins.account.table=admins")
+                .withPropertyValues("ogiri.realms.admins.base-path=/admin_auth")
                 .run(
                         context -> {
                             assertThat(context).hasNotFailed();

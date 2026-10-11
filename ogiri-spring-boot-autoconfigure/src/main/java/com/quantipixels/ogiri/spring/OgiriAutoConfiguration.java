@@ -249,8 +249,8 @@ public final class OgiriAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(
-            org.springframework.security.authentication.AuthenticationManagerResolver.class)
+    @ConditionalOnMissingBean(name = "ogiriAuthenticationManagers")
+    @org.springframework.beans.factory.annotation.Qualifier("ogiriAuthenticationManagers")
     org.springframework.security.authentication.AuthenticationManagerResolver<
                     jakarta.servlet.http.HttpServletRequest>
             ogiriAuthenticationManagers(
@@ -278,9 +278,10 @@ public final class OgiriAutoConfiguration {
             SessionRepository sessions,
             AccountStore accounts,
             SignInService signIn,
-            org.springframework.security.authentication.AuthenticationManagerResolver<
-                            jakarta.servlet.http.HttpServletRequest>
-                    managers) {
+            @org.springframework.beans.factory.annotation.Qualifier("ogiriAuthenticationManagers")
+                    org.springframework.security.authentication.AuthenticationManagerResolver<
+                                    jakarta.servlet.http.HttpServletRequest>
+                            managers) {
         return new OgiriRuntime(settings, transactions, sessions, accounts, signIn, managers);
     }
 

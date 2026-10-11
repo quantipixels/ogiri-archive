@@ -55,6 +55,17 @@ public record OgiriSettings(
         permittedFields = List.copyOf(permittedFields);
     }
 
+    /**
+     * Reject foreign session ownership before an endpoint or workflow touches this realm's store.
+     */
+    public void requireOwner(OgiriAccount identity, com.quantipixels.ogiri.Session session) {
+        if (session == null
+                || !realm.equals(session.subject().realm())
+                || !identity.id().equals(session.subject().subjectId())) {
+            throw new com.quantipixels.ogiri.DtaFailure(401, "Unauthorized");
+        }
+    }
+
     private static boolean validPath(String path) {
         return path.startsWith("/")
                 && path.length() > 1

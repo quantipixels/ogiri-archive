@@ -116,11 +116,13 @@ public final class OgiriEndpoints {
                 authentication instanceof OgiriAuthentication current && current.isAuthenticated()
                         ? current
                         : null;
+        if (identity != null)
+            runtime.settings().requireOwner(identity.getPrincipal(), identity.session());
         var changed =
                 passwords.change(
                         identity == null ? null : identity.getPrincipal(),
                         values,
-                        identity == null ? null : identity.session().id());
+                        identity == null ? null : identity.session());
         var account = changed.account();
         if (identity != null && !changed.credentialRetained())
             request.removeAttribute(runtime.responseCredentialsAttribute());
@@ -191,7 +193,7 @@ public final class OgiriEndpoints {
             Authentication authentication,
             HttpServletRequest request) {
         var identity = accountIdentity(authentication, "User not found.");
-        var changed = registration.update(identity.getPrincipal(), values, identity.session().id());
+        var changed = registration.update(identity.getPrincipal(), values, identity.session());
         var account = changed.account();
         var credentials =
                 (ResponseCredentials) request.getAttribute(runtime.responseCredentialsAttribute());
@@ -229,7 +231,7 @@ public final class OgiriEndpoints {
             HttpServletRequest request,
             HttpServletResponse response) {
         var identity = accountIdentity(authentication, "Unable to locate account for destruction.");
-        registration.destroy(identity.getPrincipal());
+        registration.destroy(identity.getPrincipal(), identity.session());
         clear(request, response);
         return Map.of(
                 "status",
@@ -238,10 +240,11 @@ public final class OgiriEndpoints {
                 "Account with UID '" + identity.getPrincipal().uid() + "' has been destroyed.");
     }
 
-    private static OgiriAuthentication accountIdentity(
-            Authentication authentication, String message) {
-        if (authentication instanceof OgiriAuthentication identity && identity.isAuthenticated())
+    private OgiriAuthentication accountIdentity(Authentication authentication, String message) {
+        if (authentication instanceof OgiriAuthentication identity && identity.isAuthenticated()) {
+            runtime.settings().requireOwner(identity.getPrincipal(), identity.session());
             return identity;
+        }
         throw com.quantipixels.ogiri.account.RegistrationService.failure(404, message);
     }
 
@@ -369,9 +372,9 @@ public final class OgiriEndpoints {
         }
     }
 
-    private static OgiriAuthentication current(
-            Authentication authentication, int status, String message) {
+    private OgiriAuthentication current(Authentication authentication, int status, String message) {
         if (authentication instanceof OgiriAuthentication current && current.isAuthenticated()) {
+            runtime.settings().requireOwner(current.getPrincipal(), current.session());
             return current;
         }
         throw new DtaFailure(status, message);

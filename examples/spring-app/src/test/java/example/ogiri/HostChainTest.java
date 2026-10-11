@@ -4,7 +4,7 @@ package example.ogiri;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.quantipixels.ogiri.security.OgiriConfigurer;
-import com.quantipixels.ogiri.security.OgiriRuntime;
+import com.quantipixels.ogiri.security.OgiriRealms;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -33,15 +33,15 @@ class HostChainTest {
     @TestConfiguration(proxyBeanMethods = false)
     static class Host {
         @Bean
-        SecurityFilterChain hostChain(HttpSecurity http, OgiriRuntime runtime) throws Exception {
-            http.with(OgiriConfigurer.ogiri(runtime), config -> {});
+        SecurityFilterChain hostChain(HttpSecurity http, OgiriRealms realms) throws Exception {
+            http.with(OgiriConfigurer.ogiri(realms), config -> {});
             http.httpBasic(org.springframework.security.config.Customizer.withDefaults());
             return http.authorizeHttpRequests(
                             routes ->
                                     routes.dispatcherTypeMatchers(
                                                     jakarta.servlet.DispatcherType.ERROR)
                                             .permitAll()
-                                            .requestMatchers("/auth/**")
+                                            .requestMatchers("/auth/**", "/admin_auth/**")
                                             .permitAll()
                                             .anyRequest()
                                             .authenticated())
@@ -52,6 +52,18 @@ class HostChainTest {
     @TestConfiguration(proxyBeanMethods = false)
     @org.springframework.web.bind.annotation.RestController
     static class BasicHost {
+        @Bean
+        org.springframework.security.authentication.AuthenticationManagerResolver<
+                        jakarta.servlet.http.HttpServletRequest>
+                hostAuthenticationManagers() {
+            return request ->
+                    authentication -> {
+                        throw new org.springframework.security.authentication
+                                .ProviderNotFoundException(
+                                "Host resolver does not support Ogiri tokens");
+                    };
+        }
+
         @Bean
         org.springframework.security.core.userdetails.UserDetailsService basicUsers() {
             return new org.springframework.security.provisioning.InMemoryUserDetailsManager(
@@ -90,6 +102,36 @@ class HostChainTest {
                                 .build(),
                         HttpResponse.BodyHandlers.ofString());
         assertEquals(401, response.statusCode(), response.body());
+    }
+
+    @Test
+    void hostResolverDoesNotDisplaceOgiriTokenAuthentication() throws Exception {
+        var client = HttpClient.newHttpClient();
+        var login =
+                client.send(
+                        HttpRequest.newBuilder(
+                                        URI.create("http://localhost:" + port + "/auth/sign_in"))
+                                .header("Content-Type", "application/x-www-form-urlencoded")
+                                .POST(
+                                        HttpRequest.BodyPublishers.ofString(
+                                                "email=demo%40example.com&password=test-password"))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, login.statusCode(), login.body());
+        var validated =
+                client.send(
+                        HttpRequest.newBuilder(
+                                        URI.create(
+                                                "http://localhost:"
+                                                        + port
+                                                        + "/auth/validate_token"))
+                                .header(
+                                        "Authorization",
+                                        login.headers().firstValue("Authorization").orElseThrow())
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, validated.statusCode(), validated.body());
     }
 
     @Test

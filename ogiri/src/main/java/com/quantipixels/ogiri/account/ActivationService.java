@@ -83,6 +83,15 @@ public final class ActivationService {
 
     public Map<String, Object> confirmation(Map<String, ?> values) {
         String email = email(values);
+        String redirect = text(values, "redirect_url");
+        String target =
+                redirect != null && !redirect.isBlank()
+                        ? links.redirect(
+                                redirect,
+                                settings.defaultConfirmSuccessUrl(),
+                                422,
+                                "Missing redirect URL.")
+                        : settings.defaultConfirmSuccessUrl();
         var candidate = transactions.read(() -> accounts.findByEmail(email));
         if (candidate.isPresent()) {
             var sent =
@@ -98,15 +107,6 @@ public final class ActivationService {
                                 if (current.column("confirmed_at") != null
                                         && current.text("unconfirmed_email").isEmpty())
                                     return new Delivery(current, null);
-                                String target = text(values, "redirect_url");
-                                if (target != null && !target.isBlank())
-                                    target =
-                                            links.redirect(
-                                                    target,
-                                                    settings.defaultConfirmSuccessUrl(),
-                                                    422,
-                                                    "Missing redirect URL.");
-                                else target = settings.defaultConfirmSuccessUrl();
                                 return confirmLocked(current, target, text(values, "config_name"));
                             });
             sent.verify(settings.paranoid());

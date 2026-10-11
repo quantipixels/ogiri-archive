@@ -135,6 +135,17 @@ public final class OgiriAuthenticationFilter extends OncePerRequestFilter {
             }
         } catch (BadCredentialsException invalid) {
             context.setAuthentication(null);
+            String mount = OgiriConfigurer.mount(request, runtime.settings().basePath());
+            String path = OgiriConfigurer.path(request);
+            if ((path.equals(mount) || path.equals(mount + "/"))
+                    && java.util.List.of("PUT", "PATCH", "DELETE").contains(request.getMethod())) {
+                DtaErrors.write(
+                        response,
+                        401,
+                        java.util.Map.of(
+                                "success", false, "errors", java.util.List.of("Unauthorized")));
+                return false;
+            }
         } catch (SessionStoreException failure) {
             DtaErrors.unavailable(response);
             return false;

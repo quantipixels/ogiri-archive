@@ -29,6 +29,7 @@ import tools.jackson.databind.json.JsonMapper;
             "ogiri.token-lifespan=120s",
             "ogiri.realms.admins.max-number-of-devices=1"
         })
+@org.springframework.context.annotation.Import(HostChainTest.Host.class)
 class RealmConsumerTest {
     @Value("${local.server.port}")
     int port;
@@ -39,7 +40,7 @@ class RealmConsumerTest {
     @BeforeEach
     void schema() {
         jdbc.execute("DROP TABLE IF EXISTS admins");
-        if (System.getenv("OGIRI_TEST_DATABASE").equals("mysql"))
+        if ("mysql".equals(System.getenv("OGIRI_TEST_DATABASE")))
             jdbc.execute("CREATE TABLE admins LIKE users");
         else {
             jdbc.execute("CREATE TABLE admins (LIKE users INCLUDING ALL)");
@@ -145,6 +146,138 @@ class RealmConsumerTest {
                     jdbc.queryForObject(
                             "SELECT provider FROM users WHERE email = ?", String.class, next));
         }
+    }
+
+    @Autowired com.quantipixels.ogiri.account.AccountValidator validator;
+    @Autowired com.quantipixels.ogiri.internal.MailDispatcher mail;
+    @Autowired com.quantipixels.ogiri.internal.PublicLinks links;
+
+    @Test
+    void usersTokenCannotPatchOrDeleteAdminThroughHostChain() throws Exception {
+        var identity = matchingIds();
+        for (String method : java.util.List.of("PATCH", "DELETE")) {
+            var response =
+                    request(
+                            method,
+                            "/admin_auth",
+                            method.equals("PATCH") ? Map.of("name", "taken-over") : null,
+                            identity.authorization());
+            assertEquals(401, response.statusCode(), response.body());
+            assertEquals(
+                    identity.email(),
+                    jdbc.queryForObject(
+                            "SELECT email FROM admins WHERE id = ?", String.class, identity.id()));
+            assertEquals(
+                    null,
+                    jdbc.queryForObject(
+                            "SELECT name FROM admins WHERE id = ?", String.class, identity.id()));
+        }
+    }
+
+    record MatchingIds(long id, String email, String authorization) {}
+
+    private MatchingIds matchingIds() throws Exception {
+        String email = "ownership-" + java.util.UUID.randomUUID() + "@example.com";
+        var user = signup("/auth", email);
+        var admin = signup("/admin_auth", email);
+        assertEquals(200, user.statusCode(), user.body());
+        assertEquals(200, admin.statusCode(), admin.body());
+        long id = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", Long.class, email);
+        jdbc.update("UPDATE admins SET id = ? WHERE email = ?", id, email);
+        return new MatchingIds(id, email, user.headers().firstValue("Authorization").orElseThrow());
+    }
+
+    @Test
+    void foreignPrincipalCannotActOnAdminEndpointsOrServices() throws Exception {
+        var ids = matchingIds();
+        var login = realms.defaultRealm().signIn().signIn(ids.email(), "test-password");
+        var identity =
+                new com.quantipixels.ogiri.security.OgiriAuthentication(
+                        login.account(), login.issued().session());
+        var admin = realms.additional().get(0);
+        var encoder = new com.quantipixels.ogiri.account.DevisePasswordEncoder();
+        var activation =
+                new com.quantipixels.ogiri.account.ActivationService(
+                        admin.accounts(),
+                        admin.transactions(),
+                        admin.sessions(),
+                        admin.settings(),
+                        mail,
+                        links);
+        var registration =
+                new com.quantipixels.ogiri.account.RegistrationService(
+                        admin.accounts(),
+                        admin.transactions(),
+                        admin.sessions(),
+                        admin.settings(),
+                        encoder,
+                        admin.signIn(),
+                        validator,
+                        activation);
+        var passwords =
+                new com.quantipixels.ogiri.account.PasswordService(
+                        admin.accounts(),
+                        admin.transactions(),
+                        admin.sessions(),
+                        admin.settings(),
+                        encoder,
+                        admin.signIn(),
+                        validator,
+                        mail,
+                        links);
+        var endpoints =
+                new com.quantipixels.ogiri.web.internal.OgiriEndpoints(
+                        admin, registration, passwords, activation);
+        var request = new org.springframework.mock.web.MockHttpServletRequest();
+        var response = new org.springframework.mock.web.MockHttpServletResponse();
+        Map<String, Object> password =
+                Map.of("password", "changed-password", "password_confirmation", "changed-password");
+        java.util.List<org.junit.jupiter.api.function.Executable> operations =
+                java.util.List.of(
+                        () -> endpoints.update(Map.of("name", "taken-over"), identity, request),
+                        () -> endpoints.updateForm(Map.of("name", "taken-over"), identity, request),
+                        () -> endpoints.destroy(identity, request, response),
+                        () -> endpoints.changePassword(password, identity, request),
+                        () ->
+                                endpoints.changePasswordForm(
+                                        Map.of(
+                                                "password",
+                                                "changed-password",
+                                                "password_confirmation",
+                                                "changed-password"),
+                                        identity,
+                                        request),
+                        () -> endpoints.validate(identity),
+                        () -> endpoints.signOut(identity, request, response),
+                        () -> endpoints.list(identity),
+                        () ->
+                                endpoints.revoke(
+                                        identity, identity.session().client(), request, response),
+                        () -> endpoints.revokeAll(identity, request, response),
+                        () ->
+                                registration.update(
+                                        identity.getPrincipal(),
+                                        Map.of("name", "taken-over"),
+                                        identity.session()),
+                        () -> registration.destroy(identity.getPrincipal(), identity.session()),
+                        () ->
+                                passwords.change(
+                                        identity.getPrincipal(), password, identity.session()));
+        for (var operation : operations) {
+            var failure = assertThrows(com.quantipixels.ogiri.DtaFailure.class, operation);
+            assertEquals(401, failure.status());
+        }
+        assertEquals(
+                ids.email(),
+                jdbc.queryForObject(
+                        "SELECT email FROM admins WHERE id = ?", String.class, ids.id()));
+        assertEquals(
+                null,
+                jdbc.queryForObject(
+                        "SELECT name FROM admins WHERE id = ?", String.class, ids.id()));
+        assertEquals(
+                200,
+                request("GET", "/auth/validate_token", null, ids.authorization()).statusCode());
     }
 
     private HttpResponse<String> signup(String path, String email) throws Exception {

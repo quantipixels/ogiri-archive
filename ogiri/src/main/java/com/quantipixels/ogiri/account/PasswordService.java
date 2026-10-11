@@ -134,12 +134,9 @@ public final class PasswordService {
         }
     }
 
-    public OgiriAccount change(OgiriAccount identity, Map<String, ?> values) {
-        return change(identity, values, null).account();
-    }
-
     public AccountChange change(
-            OgiriAccount identity, Map<String, ?> values, java.util.UUID credential) {
+            OgiriAccount identity, Map<String, ?> values, com.quantipixels.ogiri.Session session) {
+        if (identity != null) settings.requireOwner(identity, session);
         String token = text(values, "reset_password_token");
         if (identity == null && (!settings.requireClientPasswordResetToken() || token == null))
             throw new DtaFailure(401, "Unauthorized");
@@ -167,7 +164,10 @@ public final class PasswordService {
                     if (settings.removeTokensAfterPasswordReset())
                         sessions.keepNewestLocked(signIn.subject(current));
                     return new AccountChange(
-                            updated, sessions.liveLocked(signIn.subject(current), credential));
+                            updated,
+                            sessions.liveLocked(
+                                    signIn.subject(current),
+                                    session == null ? null : session.id()));
                 });
     }
 

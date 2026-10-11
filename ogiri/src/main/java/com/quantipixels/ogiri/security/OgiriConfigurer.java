@@ -21,21 +21,20 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
     private final OgiriRealms realms;
     private final OgiriSecurityContextRepository repository;
 
-    private OgiriConfigurer(OgiriRuntime runtime) {
-        this(new OgiriRealms(runtime, List.of()));
-    }
+    private final boolean singleRuntime;
 
-    private OgiriConfigurer(OgiriRealms realms) {
+    private OgiriConfigurer(OgiriRealms realms, boolean singleRuntime) {
         this.realms = realms;
+        this.singleRuntime = singleRuntime;
         repository = new OgiriSecurityContextRepository(realms);
     }
 
     public static OgiriConfigurer ogiri(OgiriRuntime runtime) {
-        return new OgiriConfigurer(runtime);
+        return new OgiriConfigurer(new OgiriRealms(runtime, List.of()), true);
     }
 
     public static OgiriConfigurer ogiri(OgiriRealms realms) {
-        return new OgiriConfigurer(realms);
+        return new OgiriConfigurer(realms, false);
     }
 
     public static void exposeHeaders(CorsConfiguration cors) {
@@ -49,6 +48,13 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
     @Override
     public void init(HttpSecurity http) {
         var context = http.getSharedObject(org.springframework.context.ApplicationContext.class);
+        if (singleRuntime
+                && context != null
+                && context.getBeanProvider(OgiriRealms.class).stream()
+                        .anyMatch(mounted -> !mounted.additional().isEmpty())) {
+            throw new IllegalStateException(
+                    "OgiriConfigurer.ogiri(runtime) cannot be used with additional realms; use OgiriConfigurer.ogiri(realms)");
+        }
         if (context != null
                 && context.getBeanNamesForType(
                                         org.springframework.web.cors.CorsConfigurationSource.class)

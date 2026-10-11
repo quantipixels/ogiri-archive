@@ -52,7 +52,9 @@ public class OgiriRealmConfiguration {
             MailDispatcher mail,
             ApplicationContext context) {
         var mounts = new ArrayList<Mount>();
-        for (String name : properties.realms().keySet()) {
+        var tables = new java.util.HashSet<String>();
+        tables.add(properties.account().table().toLowerCase(java.util.Locale.ROOT));
+        for (String name : properties.realms().keySet().stream().sorted().toList()) {
             if (!name.matches("[a-z][a-z0-9-]*"))
                 throw new IllegalArgumentException(
                         "Ogiri realm keys must be canonical lowercase names");
@@ -68,6 +70,15 @@ public class OgiriRealmConfiguration {
             var settings = realm.settings();
             OgiriAutoConfiguration.validateFeatures(realm);
             String storeName = name + "OgiriAccountStore";
+            if (!context.containsBean(storeName)
+                    && !tables.add(realm.account().table().toLowerCase(java.util.Locale.ROOT))) {
+                throw new IllegalArgumentException(
+                        "Ogiri realms must use distinct account tables; configure ogiri.realms."
+                                + name
+                                + ".account.table or an explicit "
+                                + storeName
+                                + " bean");
+            }
             AccountStore accounts =
                     context.containsBean(storeName)
                             ? context.getBean(storeName, AccountStore.class)

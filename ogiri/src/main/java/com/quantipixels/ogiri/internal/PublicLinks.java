@@ -52,7 +52,7 @@ public final class PublicLinks {
         if (value == null) return null;
         try {
             URI uri = URI.create(value);
-            return List.of("http", "https").contains(uri.getScheme())
+            return ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))
                             && uri.getHost() != null
                             && uri.getRawUserInfo() == null
                     ? uri

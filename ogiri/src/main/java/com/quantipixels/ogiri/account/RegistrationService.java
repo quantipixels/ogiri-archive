@@ -98,12 +98,9 @@ public final class RegistrationService {
         }
     }
 
-    public OgiriAccount update(OgiriAccount identity, Map<String, ?> values) {
-        return update(identity, values, null).account();
-    }
-
     public AccountChange update(
-            OgiriAccount identity, Map<String, ?> values, java.util.UUID credential) {
+            OgiriAccount identity, Map<String, ?> values, com.quantipixels.ogiri.Session session) {
+        settings.requireOwner(identity, session);
         var input = AccountInput.from(values, settings, false);
         requireInput(input, "account update");
         String hash = input.password() == null ? null : passwords.encode(input.password());
@@ -143,7 +140,7 @@ public final class RegistrationService {
                                     new AccountChange(
                                             delivery.account(),
                                             sessions.liveLocked(
-                                                    signIn.subject(current), credential)),
+                                                    signIn.subject(current), session.id())),
                                     delivery);
                         });
         result.delivery().verify(settings.paranoid());
@@ -167,7 +164,8 @@ public final class RegistrationService {
 
     private record Mutation(AccountChange change, ActivationService.Delivery delivery) {}
 
-    public void destroy(OgiriAccount identity) {
+    public void destroy(OgiriAccount identity, com.quantipixels.ogiri.Session session) {
+        settings.requireOwner(identity, session);
         transactions.write(
                 () -> {
                     transactions.lock(signIn.subject(identity));
