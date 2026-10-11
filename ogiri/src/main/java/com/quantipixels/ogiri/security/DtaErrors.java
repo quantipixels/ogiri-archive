@@ -72,6 +72,10 @@ public final class DtaErrors {
                 Map.of("errors", List.of("You are not authorized to access this resource.")));
     }
 
+    public static void csrf(HttpServletResponse response) throws IOException {
+        write(response, 403, Map.of("success", false, "errors", List.of("Invalid CSRF token")));
+    }
+
     public static void unavailable(HttpServletResponse response) throws IOException {
         write(response, 503, DtaFailure.unavailable());
     }

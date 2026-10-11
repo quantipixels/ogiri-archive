@@ -2,6 +2,8 @@
 package com.quantipixels.ogiri.security;
 
 import com.quantipixels.ogiri.security.internal.DtaAuthenticationConverter;
+import com.quantipixels.ogiri.security.internal.OgiriCsrfRequestHandler;
+import com.quantipixels.ogiri.security.internal.OgiriCsrfTokenRepository;
 import com.quantipixels.ogiri.security.internal.OgiriRealmAuthenticationFilter;
 import com.quantipixels.ogiri.security.internal.OgiriSecurityContextRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,8 +13,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.web.cors.CorsConfiguration;
 
 public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigurer, HttpSecurity> {
@@ -68,10 +69,9 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
                 .securityContext(config -> config.securityContextRepository(repository))
                 .csrf(
                         csrf ->
-                                csrf.csrfTokenRepository(
-                                                CookieCsrfTokenRepository.withHttpOnlyFalse())
+                                csrf.csrfTokenRepository(new OgiriCsrfTokenRepository(realms))
                                         .csrfTokenRequestHandler(
-                                                new CsrfTokenRequestAttributeHandler())
+                                                new OgiriCsrfRequestHandler(realms))
                                         .requireCsrfProtectionMatcher(this::cookieCsrfRequired))
                 .exceptionHandling(
                         config ->
@@ -84,29 +84,41 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
                                                                         .settings()
                                                                         .basePath()))
                                         .accessDeniedHandler(
-                                                (request, response, failure) ->
-                                                        DtaErrors.forbidden(response)))
+                                                (request, response, failure) -> {
+                                                    if (failure instanceof CsrfException) {
+                                                        DtaErrors.csrf(response);
+                                                    } else {
+                                                        DtaErrors.forbidden(response);
+                                                    }
+                                                }))
                 .headers(config -> config.addHeaderWriter(new DtaHeaderWriter(realms)));
     }
 
     private boolean cookieCsrfRequired(HttpServletRequest request) {
         var runtime = realms.resolve(request);
         if (!runtime.settings().cookieEnabled()
-                || DtaAuthenticationConverter.hasHeaders(request)
-                || publicWorkflow(request, runtime.settings().basePath())
                 || List.of("GET", "HEAD", "OPTIONS", "TRACE").contains(request.getMethod())) {
             return false;
         }
-        var cookies = request.getCookies();
-        if (cookies == null) {
+        // Session issuance creates ambient credentials even without an incoming auth cookie.
+        if (realms.endpointsEnabled(request) && canIssueAuthCookie(request, runtime)) {
+            return true;
+        }
+        if (realms.endpointsEnabled(request)
+                && publicWorkflow(request, runtime.settings().basePath())) {
             return false;
         }
-        for (var cookie : cookies) {
-            if (runtime.settings().cookieName().equals(cookie.getName())) {
-                return true;
-            }
-        }
-        return false;
+        var candidate = new DtaAuthenticationConverter(runtime.settings()).convert(request);
+        return candidate instanceof DtaAuthenticationToken token && token.getCredentials().cookie();
+    }
+
+    private static boolean canIssueAuthCookie(HttpServletRequest request, OgiriRuntime runtime) {
+        if (!request.getMethod().equals("POST")) return false;
+        String base = mount(request, runtime.settings().basePath());
+        String path = path(request);
+        return path.equals(base + "/sign_in")
+                || (!runtime.settings().confirmable()
+                        && (path.equals(base) || path.equals(base + "/")));
     }
 
     @Override

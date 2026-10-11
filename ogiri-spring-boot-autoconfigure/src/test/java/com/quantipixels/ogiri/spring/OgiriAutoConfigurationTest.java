@@ -120,13 +120,49 @@ class OgiriAutoConfigurationTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({
-        "ogiri.cookie-enabled=true,Ogiri cookie login CSRF is not implemented in this checkpoint",
         "ogiri.cleanup.interval=1m,Ogiri scheduled cleanup is not implemented in this checkpoint"
     })
     void unfinishedConfiguredBehaviorFailsExplicitly(String property, String cause) {
         runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
                 .withPropertyValues(property)
                 .run(context -> assertThat(context.getStartupFailure()).hasRootCauseMessage(cause));
+    }
+
+    @Test
+    @Tag("database")
+    void cookieScopesMustNotCollideAndCsrfCookieNameIsReserved() {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues("ogiri.cookie-enabled=true", "ogiri.cookie-name=XSRF-TOKEN")
+                .run(
+                        context ->
+                                assertThat(context.getStartupFailure())
+                                        .hasRootCauseMessage(
+                                                "Ogiri auth cookie name must differ from XSRF-TOKEN"));
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues(
+                        "ogiri.cookie-enabled=true",
+                        "ogiri.realms.admins.base-path=/admin_auth",
+                        "ogiri.realms.admins.account.table=admins")
+                .run(
+                        context ->
+                                assertThat(context.getStartupFailure())
+                                        .hasRootCauseMessage(
+                                                "Ogiri realm cookies require distinct names or non-overlapping paths"));
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues(
+                        "ogiri.cookie-enabled=true",
+                        "ogiri.realms.admins.base-path=/admin_auth",
+                        "ogiri.realms.admins.account.table=admins",
+                        "ogiri.realms.admins.cookie-name=admin_auth_cookie")
+                .run(context -> assertThat(context).hasNotFailed());
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues(
+                        "ogiri.cookie-enabled=true",
+                        "ogiri.cookie-path=/auth",
+                        "ogiri.realms.admins.base-path=/admin_auth",
+                        "ogiri.realms.admins.account.table=admins",
+                        "ogiri.realms.admins.cookie-path=/admin_auth")
+                .run(context -> assertThat(context).hasNotFailed());
     }
 
     @Test

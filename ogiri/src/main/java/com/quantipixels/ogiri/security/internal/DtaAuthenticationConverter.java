@@ -23,47 +23,45 @@ public final class DtaAuthenticationConverter implements AuthenticationConverter
 
     @Override
     public Authentication convert(HttpServletRequest request) {
-        Map<?, ?> fallback = authorization(request.getHeader("Authorization"));
+        Map<?, ?> bearer = authorization(request.getHeader("Authorization"));
+        Map<?, ?> cookie = cookie(request);
         boolean cookieSource = false;
-        if (settings.cookieEnabled() && !hasHeaders(request) && request.getCookies() != null) {
-            for (Cookie cookie : request.getCookies()) {
-                if (settings.cookieName().equals(cookie.getName())) {
-                    try {
-                        fallback =
-                                parse(
-                                        java.net.URLDecoder.decode(
-                                                cookie.getValue(), StandardCharsets.UTF_8));
-                    } catch (IllegalArgumentException malformed) {
-                        fallback = Map.of();
-                    }
-                    cookieSource = true;
-                }
+        var fields = new java.util.HashMap<String, String>();
+        for (String key : java.util.List.of("access-token", "uid", "client")) {
+            String header = request.getHeader(key);
+            if (header != null) {
+                fields.put(key, header);
+            } else if (bearer.get(key) instanceof String value) {
+                fields.put(key, value);
+            } else if (cookie.get(key) instanceof String value) {
+                fields.put(key, value);
+                cookieSource = true;
             }
         }
-        String token = field(request, fallback, "access-token", "");
-        String uid = field(request, fallback, "uid", "");
-        String client = field(request, fallback, "client", "default");
+        String token = fields.getOrDefault("access-token", "");
+        String uid = fields.getOrDefault("uid", "");
+        String client = fields.getOrDefault("client", "default");
         if (uid.isEmpty() && token.isEmpty()) {
             return null;
         }
         return new DtaAuthenticationToken(new DtaCredential(uid, client, token, cookieSource));
     }
 
-    public static boolean hasHeaders(HttpServletRequest request) {
-        return request.getHeader("access-token") != null
-                || request.getHeader("uid") != null
-                || request.getHeader("client") != null
-                || request.getHeader("Authorization") != null;
-    }
-
-    private static String field(
-            HttpServletRequest request, Map<?, ?> fallback, String key, String absent) {
-        String header = request.getHeader(key);
-        if (header != null) {
-            return header;
+    private Map<?, ?> cookie(HttpServletRequest request) {
+        if (settings.cookieEnabled() && request.getCookies() != null) {
+            for (Cookie cookie : request.getCookies()) {
+                if (settings.cookieName().equals(cookie.getName())) {
+                    try {
+                        return parse(
+                                java.net.URLDecoder.decode(
+                                        cookie.getValue(), StandardCharsets.UTF_8));
+                    } catch (IllegalArgumentException malformed) {
+                        return Map.of();
+                    }
+                }
+            }
         }
-        Object value = fallback.get(key);
-        return value instanceof String string ? string : absent;
+        return Map.of();
     }
 
     private Map<?, ?> authorization(String value) {

@@ -58,10 +58,6 @@ public final class OgiriAutoConfiguration {
     }
 
     static void validateFeatures(OgiriProperties properties) {
-        var settings = properties.settings();
-        if (settings.cookieEnabled())
-            throw new IllegalStateException(
-                    "Ogiri cookie login CSRF is not implemented in this checkpoint");
         rejectUnimplementedCleanup(properties);
     }
 

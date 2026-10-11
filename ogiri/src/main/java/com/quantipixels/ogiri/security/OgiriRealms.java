@@ -21,6 +21,9 @@ public record OgiriRealms(
         runtimes.addAll(additional);
         for (int i = 0; i < runtimes.size(); i++) {
             var left = runtimes.get(i).settings();
+            if (left.cookieEnabled() && left.cookieName().equals("XSRF-TOKEN"))
+                throw new IllegalArgumentException(
+                        "Ogiri auth cookie name must differ from XSRF-TOKEN");
             for (int j = i + 1; j < runtimes.size(); j++) {
                 var right = runtimes.get(j).settings();
                 if (left.realm().equals(right.realm())
