@@ -70,14 +70,37 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
                         csrf ->
                                 csrf.csrfTokenRepository(new OgiriCsrfTokenRepository(realms))
                                         .csrfTokenRequestHandler(
-                                                (request, response, token) -> {
-                                                    var handler =
-                                                            new CsrfTokenRequestAttributeHandler();
-                                                    if (realms.resolve(request)
-                                                            .settings()
-                                                            .cookieEnabled())
-                                                        handler.setCsrfRequestAttributeName(null);
-                                                    handler.handle(request, response, token);
+                                                new org.springframework.security.web.csrf
+                                                        .CsrfTokenRequestHandler() {
+                                                    @Override
+                                                    public void handle(
+                                                            HttpServletRequest request,
+                                                            jakarta.servlet.http.HttpServletResponse
+                                                                    response,
+                                                            java.util.function.Supplier<
+                                                                            org.springframework
+                                                                                    .security.web
+                                                                                    .csrf.CsrfToken>
+                                                                    token) {
+                                                        var handler =
+                                                                new CsrfTokenRequestAttributeHandler();
+                                                        if (realms.resolve(request)
+                                                                .settings()
+                                                                .cookieEnabled())
+                                                            handler.setCsrfRequestAttributeName(
+                                                                    null);
+                                                        handler.handle(request, response, token);
+                                                    }
+
+                                                    @Override
+                                                    public String resolveCsrfTokenValue(
+                                                            HttpServletRequest request,
+                                                            org.springframework.security.web.csrf
+                                                                            .CsrfToken
+                                                                    token) {
+                                                        return request.getHeader(
+                                                                token.getHeaderName());
+                                                    }
                                                 })
                                         .requireCsrfProtectionMatcher(this::cookieCsrfRequired))
                 .exceptionHandling(

@@ -74,6 +74,9 @@ class CookieConsumerTest {
                     Map.of("success", false, "errors", java.util.List.of("Invalid CSRF token")),
                     json.readValue(rejected.body(), Map.class));
         }
+        var parameterOnly =
+                request("POST", "/auth/sign_in?_csrf=" + value(csrf), body, Map.of("Cookie", csrf));
+        assertEquals(403, parameterOnly.statusCode(), parameterOnly.body());
         assertEquals(
                 before, jdbc.queryForObject("SELECT COUNT(*) FROM ogiri_sessions", Integer.class));
         var accepted =
