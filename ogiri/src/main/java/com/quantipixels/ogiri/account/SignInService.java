@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.account;
 
-import com.quantipixels.ogiri.AuthTransactions;
 import com.quantipixels.ogiri.DtaFailure;
 import com.quantipixels.ogiri.IssuedSession;
-import com.quantipixels.ogiri.JdbcSessions;
 import com.quantipixels.ogiri.Subject;
-import com.quantipixels.ogiri.Tokens;
+import com.quantipixels.ogiri.internal.AuthTransactions;
+import com.quantipixels.ogiri.internal.SessionRepository;
+import com.quantipixels.ogiri.internal.Tokens;
 import java.util.Optional;
 
 /** Verifies outside locks, then fences the verified hash under subject/account locks. */
@@ -14,7 +14,7 @@ public final class SignInService {
     public static final String INVALID = "Invalid login credentials. Please try again.";
     private final AccountStore accounts;
     private final AuthTransactions transactions;
-    private final JdbcSessions sessions;
+    private final SessionRepository sessions;
     private final OgiriSettings settings;
     private final DevisePasswordEncoder passwords;
     private final String dummy;
@@ -22,7 +22,7 @@ public final class SignInService {
     public SignInService(
             AccountStore accounts,
             AuthTransactions transactions,
-            JdbcSessions sessions,
+            SessionRepository sessions,
             OgiriSettings settings,
             DevisePasswordEncoder passwords) {
         this.accounts = accounts;
@@ -46,6 +46,12 @@ public final class SignInService {
         String verified = found.map(OgiriAccount::getPassword).orElse(dummy);
         boolean matches = passwords.matches(password == null ? "" : password, verified);
         if (found.isEmpty()) {
+            transactions.write(
+                    () -> {
+                        transactions.lock(new Subject(settings.realm(), "", "__ogiri_missing__"));
+                        accounts.lock("-1");
+                        return null;
+                    });
             throw new DtaFailure(401, INVALID);
         }
         OgiriAccount candidate = found.orElseThrow();

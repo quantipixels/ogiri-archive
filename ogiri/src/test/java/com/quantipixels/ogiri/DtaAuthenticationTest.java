@@ -8,6 +8,8 @@ import com.quantipixels.ogiri.account.DevisePasswordEncoder;
 import com.quantipixels.ogiri.account.JdbcDeviseAccountStore;
 import com.quantipixels.ogiri.account.OgiriSettings;
 import com.quantipixels.ogiri.account.SignInService;
+import com.quantipixels.ogiri.internal.AuthTransactions;
+import com.quantipixels.ogiri.internal.SessionRepository;
 import com.quantipixels.ogiri.security.DtaAuthenticationToken;
 import com.quantipixels.ogiri.security.DtaCredential;
 import com.quantipixels.ogiri.security.OgiriAuthenticationFilter;
@@ -53,7 +55,7 @@ class DtaAuthenticationTest {
                         new ClassPathResource("META-INF/ogiri/users-" + engine + ".sql"))
                 .execute(source);
         var settings = OgiriSettings.defaults();
-        var sessions = new JdbcSessions(tx, SessionPolicy.defaults());
+        var sessions = new SessionRepository(tx, SessionPolicy.defaults());
         var accounts =
                 new JdbcDeviseAccountStore(
                         tx,

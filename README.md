@@ -94,3 +94,7 @@ The configurer installs the dedicated DTA converter/provider/filter, error handl
 Every authentication reads the primary database and current account state. Mutations commit independently of surrounding application transactions; reads suspend their snapshots. Ordinary calls support a one-connection pool; an outer transaction holding a connection needs spare capacity. Cleanup is bounded with SKIP LOCKED and does not determine authentication expiry.
 
 See the [independent sample](examples/spring-app/README.md) for build, startup and HTTP exercises. FastAPI and Phoenix implementations live under [packages/python](packages/python/) and [packages/elixir](packages/elixir/). Licensed under Apache-2.0.
+
+### Spring public API
+
+Adopters use AccountStore, OgiriAccount, OgiriAuthorities, OgiriPasswords/DevisePasswordEncoder, OgiriMailer, the independent JdbcSessions interface and subject/session records, OgiriRuntime and OgiriConfigurer. Atomic JDBC workflow operations, token helpers, MVC endpoints and credential conversion are under internal packages. Configure `ogiri.public-base-url` (or `spring.application.url`) and JavaMailSender or an OgiriMailer bean for recovery. `ogiri.bcrypt-cost` defaults to 12 and also determines the unknown-account dummy cost.

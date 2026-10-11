@@ -9,9 +9,21 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 /** bcrypt-ruby input semantics, including truncation across a multibyte boundary. */
 @org.jspecify.annotations.NullMarked
 public final class DevisePasswordEncoder implements PasswordEncoder {
+    private final int cost;
+
+    public DevisePasswordEncoder() {
+        this(12);
+    }
+
+    public DevisePasswordEncoder(int cost) {
+        if (cost < 4 || cost > 31)
+            throw new IllegalArgumentException("bcrypt cost must be between 4 and 31");
+        this.cost = cost;
+    }
+
     @Override
     public String encode(@org.jspecify.annotations.Nullable CharSequence password) {
-        return BCrypt.hashpw(bytes(password), BCrypt.gensalt(12));
+        return BCrypt.hashpw(bytes(password), BCrypt.gensalt(cost));
     }
 
     @Override

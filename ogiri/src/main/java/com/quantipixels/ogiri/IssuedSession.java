@@ -9,7 +9,7 @@ public final class IssuedSession {
     private final Session session;
     private final String token;
 
-    IssuedSession(Session session, String token) {
+    public IssuedSession(Session session, String token) {
         this.session = session;
         this.token = token;
     }

@@ -7,7 +7,7 @@ package com.quantipixels.ogiri;
  * authentication.
  */
 public final class SessionStoreException extends RuntimeException {
-    SessionStoreException(Throwable cause) {
+    public SessionStoreException(Throwable cause) {
         super("Session storage operation failed", cause);
     }
 }

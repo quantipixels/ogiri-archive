@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.account;
 
-import com.quantipixels.ogiri.AuthTransactions;
+import com.quantipixels.ogiri.internal.AuthTransactions;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;

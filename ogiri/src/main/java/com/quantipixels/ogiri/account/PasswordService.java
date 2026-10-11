@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.account;
 
-import com.quantipixels.ogiri.AuthTransactions;
 import com.quantipixels.ogiri.DtaFailure;
 import com.quantipixels.ogiri.IssuedSession;
-import com.quantipixels.ogiri.JdbcSessions;
-import com.quantipixels.ogiri.Tokens;
+import com.quantipixels.ogiri.internal.AuthTransactions;
 import com.quantipixels.ogiri.internal.MailDispatcher;
 import com.quantipixels.ogiri.internal.PublicLinks;
+import com.quantipixels.ogiri.internal.SessionRepository;
+import com.quantipixels.ogiri.internal.Tokens;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,7 +17,7 @@ import org.springframework.validation.BeanPropertyBindingResult;
 public final class PasswordService {
     private final AccountStore accounts;
     private final AuthTransactions transactions;
-    private final JdbcSessions sessions;
+    private final SessionRepository sessions;
     private final OgiriSettings settings;
     private final DevisePasswordEncoder passwords;
     private final SignInService signIn;
@@ -28,7 +28,7 @@ public final class PasswordService {
     public PasswordService(
             AccountStore accounts,
             AuthTransactions transactions,
-            JdbcSessions sessions,
+            SessionRepository sessions,
             OgiriSettings settings,
             DevisePasswordEncoder passwords,
             SignInService signIn,

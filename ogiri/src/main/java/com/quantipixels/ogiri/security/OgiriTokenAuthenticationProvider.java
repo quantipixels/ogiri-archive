@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.security;
 
-import com.quantipixels.ogiri.AuthTransactions;
-import com.quantipixels.ogiri.JdbcSessions;
 import com.quantipixels.ogiri.Subject;
 import com.quantipixels.ogiri.account.AccountStore;
 import com.quantipixels.ogiri.account.OgiriSettings;
+import com.quantipixels.ogiri.internal.AuthTransactions;
+import com.quantipixels.ogiri.internal.SessionRepository;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
@@ -13,13 +13,13 @@ import org.springframework.security.core.Authentication;
 public final class OgiriTokenAuthenticationProvider implements AuthenticationProvider {
     private final AccountStore accounts;
     private final AuthTransactions transactions;
-    private final JdbcSessions sessions;
+    private final SessionRepository sessions;
     private final OgiriSettings settings;
 
     public OgiriTokenAuthenticationProvider(
             AccountStore accounts,
             AuthTransactions transactions,
-            JdbcSessions sessions,
+            SessionRepository sessions,
             OgiriSettings settings) {
         this.accounts = accounts;
         this.transactions = transactions;

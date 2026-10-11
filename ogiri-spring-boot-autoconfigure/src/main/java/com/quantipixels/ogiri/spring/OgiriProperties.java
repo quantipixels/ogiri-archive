@@ -40,7 +40,8 @@ public record OgiriProperties(
         @DefaultValue Endpoints endpoints,
         @DefaultValue Cleanup cleanup,
         @DefaultValue("") String publicBaseUrl,
-        @DefaultValue("no-reply@localhost") String mailFrom) {
+        @DefaultValue("no-reply@localhost") String mailFrom,
+        @DefaultValue("12") int bcryptCost) {
     public OgiriProperties {
         redirectAllowlist = redirectAllowlist == null ? List.of() : List.copyOf(redirectAllowlist);
         permittedFields =

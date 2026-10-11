@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri;
 
+import com.quantipixels.ogiri.internal.Tokens;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.nio.file.*;
@@ -45,7 +46,7 @@ public final class JdbcSessionsBenchmark {
                 jdbc.batchUpdate(
                         "INSERT INTO ogiri_sessions (id,realm,tenant_id,subject_id,client,created_at,expires_at,token_hash) VALUES (?,?,?,?,?,?,?,?)",
                         rows);
-                var sessions = new JdbcSessions(source);
+                var sessions = new com.quantipixels.ogiri.internal.SessionRepository(source);
                 for (int i = 0; i < 1000; i++)
                     if (sessions.authenticate(token).isEmpty())
                         throw new AssertionError("Warmup failed");

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri;
+package com.quantipixels.ogiri.internal;
 
+import com.quantipixels.ogiri.SessionStoreException;
+import com.quantipixels.ogiri.Subject;
 import java.util.Objects;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
@@ -63,7 +65,7 @@ public final class AuthTransactions {
         return manager;
     }
 
-    String clockExpression() {
+    public String clockExpression() {
         return database.now;
     }
 

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.spring;
 
-import com.quantipixels.ogiri.AuthTransactions;
-import com.quantipixels.ogiri.JdbcSessions;
 import com.quantipixels.ogiri.SessionPolicy;
 import com.quantipixels.ogiri.account.AccountStore;
 import com.quantipixels.ogiri.account.DevisePasswordEncoder;
@@ -10,9 +8,11 @@ import com.quantipixels.ogiri.account.JdbcDeviseAccountStore;
 import com.quantipixels.ogiri.account.OgiriAuthorities;
 import com.quantipixels.ogiri.account.OgiriSettings;
 import com.quantipixels.ogiri.account.SignInService;
+import com.quantipixels.ogiri.internal.AuthTransactions;
+import com.quantipixels.ogiri.internal.SessionRepository;
 import com.quantipixels.ogiri.security.OgiriConfigurer;
 import com.quantipixels.ogiri.security.OgiriRuntime;
-import com.quantipixels.ogiri.web.OgiriEndpoints;
+import com.quantipixels.ogiri.web.internal.OgiriEndpoints;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -87,16 +87,17 @@ public final class OgiriAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    JdbcSessions ogiriSessions(AuthTransactions transactions, OgiriSettings settings) {
-        return new JdbcSessions(
+    SessionRepository ogiriSessions(AuthTransactions transactions, OgiriSettings settings) {
+        return new SessionRepository(
                 transactions,
                 new SessionPolicy(settings.tokenLifespan(), settings.maxNumberOfDevices()));
     }
 
     @Bean
     @ConditionalOnMissingBean
-    com.quantipixels.ogiri.account.OgiriPasswords ogiriPasswordEncoder() {
-        return new com.quantipixels.ogiri.account.OgiriPasswords(new DevisePasswordEncoder());
+    com.quantipixels.ogiri.account.OgiriPasswords ogiriPasswordEncoder(OgiriProperties properties) {
+        return new com.quantipixels.ogiri.account.OgiriPasswords(
+                new DevisePasswordEncoder(properties.bcryptCost()));
     }
 
     @Bean
@@ -123,7 +124,7 @@ public final class OgiriAutoConfiguration {
     SignInService ogiriSignIn(
             AccountStore accounts,
             AuthTransactions transactions,
-            JdbcSessions sessions,
+            SessionRepository sessions,
             OgiriSettings settings,
             com.quantipixels.ogiri.account.OgiriPasswords passwords) {
         return new SignInService(accounts, transactions, sessions, settings, passwords.encoder());
@@ -147,7 +148,7 @@ public final class OgiriAutoConfiguration {
     com.quantipixels.ogiri.account.RegistrationService ogiriRegistration(
             AccountStore accounts,
             AuthTransactions transactions,
-            JdbcSessions sessions,
+            SessionRepository sessions,
             OgiriSettings settings,
             com.quantipixels.ogiri.account.OgiriPasswords passwords,
             SignInService signIn,
@@ -200,7 +201,7 @@ public final class OgiriAutoConfiguration {
     com.quantipixels.ogiri.account.PasswordService ogiriPasswordService(
             AccountStore accounts,
             AuthTransactions transactions,
-            JdbcSessions sessions,
+            SessionRepository sessions,
             OgiriSettings settings,
             com.quantipixels.ogiri.account.OgiriPasswords passwords,
             SignInService signIn,
@@ -229,7 +230,7 @@ public final class OgiriAutoConfiguration {
                             providers,
                     AccountStore accounts,
                     AuthTransactions transactions,
-                    JdbcSessions sessions,
+                    SessionRepository sessions,
                     OgiriSettings settings) {
         var provider =
                 providers.getIfAvailable(
@@ -246,7 +247,7 @@ public final class OgiriAutoConfiguration {
     OgiriRuntime ogiriRuntime(
             OgiriSettings settings,
             AuthTransactions transactions,
-            JdbcSessions sessions,
+            SessionRepository sessions,
             AccountStore accounts,
             SignInService signIn,
             org.springframework.security.authentication.AuthenticationManagerResolver<

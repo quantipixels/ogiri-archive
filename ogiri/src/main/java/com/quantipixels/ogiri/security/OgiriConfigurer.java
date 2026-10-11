@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.security;
 
+import com.quantipixels.ogiri.security.internal.DtaAuthenticationConverter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;

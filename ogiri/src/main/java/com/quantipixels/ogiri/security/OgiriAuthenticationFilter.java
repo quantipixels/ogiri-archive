@@ -2,6 +2,7 @@
 package com.quantipixels.ogiri.security;
 
 import com.quantipixels.ogiri.SessionStoreException;
+import com.quantipixels.ogiri.security.internal.DtaAuthenticationConverter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

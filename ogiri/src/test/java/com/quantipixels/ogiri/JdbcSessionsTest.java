@@ -3,6 +3,7 @@ package com.quantipixels.ogiri;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.quantipixels.ogiri.internal.Tokens;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
@@ -49,7 +50,7 @@ class JdbcSessionsTest {
     @BeforeEach
     void reset() throws Exception {
         sql("TRUNCATE ogiri_sessions");
-        sessions = new JdbcSessions(dataSource);
+        sessions = new com.quantipixels.ogiri.internal.SessionRepository(dataSource);
     }
 
     @Test
@@ -89,7 +90,7 @@ class JdbcSessionsTest {
                         return super.getConnection();
                     }
                 };
-        var offline = new JdbcSessions(faultable);
+        var offline = new com.quantipixels.ogiri.internal.SessionRepository(faultable);
         unavailable.set(true);
         for (String token :
                 new String[] {
@@ -139,7 +140,7 @@ class JdbcSessionsTest {
                                         });
                     }
                 };
-        var reader = new JdbcSessions(readOnly);
+        var reader = new com.quantipixels.ogiri.internal.SessionRepository(readOnly);
         for (int i = 0; i < 5; i++)
             assertEquals(issued.session(), reader.authenticate(issued.token()).orElseThrow());
         assertEquals(
@@ -191,7 +192,9 @@ class JdbcSessionsTest {
 
     @Test
     void admissionEvictsEarliestExpiryAndRevocationFreesCapacity() {
-        var limited = new JdbcSessions(dataSource, new SessionPolicy(Duration.ofHours(1), 1));
+        var limited =
+                new com.quantipixels.ogiri.internal.SessionRepository(
+                        dataSource, new SessionPolicy(Duration.ofHours(1), 1));
         var first = limited.issue(OWNER, "phone");
         var second = limited.issue(OWNER, "laptop");
         assertTrue(limited.authenticate(first.token()).isEmpty());
@@ -214,7 +217,7 @@ class JdbcSessionsTest {
                                     () -> {
                                         start.await(5, TimeUnit.SECONDS);
                                         try {
-                                            new JdbcSessions(
+                                            new com.quantipixels.ogiri.internal.SessionRepository(
                                                             dataSource,
                                                             new SessionPolicy(
                                                                     Duration.ofHours(1), 2))
@@ -292,7 +295,10 @@ class JdbcSessionsTest {
                     }
                 };
         assertThrows(
-                SessionStoreException.class, () -> new JdbcSessions(failing).issue(OWNER, "phone"));
+                SessionStoreException.class,
+                () ->
+                        new com.quantipixels.ogiri.internal.SessionRepository(failing)
+                                .issue(OWNER, "phone"));
         assertTrue(sessions.list(OWNER).isEmpty());
         assertTrue(sessions.authenticate(sessions.issue(OWNER, "retry").token()).isPresent());
     }
@@ -349,7 +355,7 @@ class JdbcSessionsTest {
                         return super.getConnection();
                     }
                 };
-        var reader = new JdbcSessions(source);
+        var reader = new com.quantipixels.ogiri.internal.SessionRepository(source);
         assertEquals(issued.session(), reader.authenticate(issued.token()).orElseThrow());
         offline.set(true);
         assertThrows(SessionStoreException.class, () -> reader.authenticate(issued.token()));

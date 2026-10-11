@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.web;
+package com.quantipixels.ogiri.web.internal;
 
 import com.quantipixels.ogiri.DtaFailure;
 import com.quantipixels.ogiri.SessionStoreException;

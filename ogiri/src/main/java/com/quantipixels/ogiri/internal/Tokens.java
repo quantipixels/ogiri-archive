@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Quanti Pixels
-package com.quantipixels.ogiri;
+package com.quantipixels.ogiri.internal;
 
+import com.quantipixels.ogiri.Subject;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

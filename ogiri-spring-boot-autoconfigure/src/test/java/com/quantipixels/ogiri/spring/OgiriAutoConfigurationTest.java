@@ -3,9 +3,9 @@ package com.quantipixels.ogiri.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.quantipixels.ogiri.AuthTransactions;
 import com.quantipixels.ogiri.JdbcSessions;
 import com.quantipixels.ogiri.account.OgiriSettings;
+import com.quantipixels.ogiri.internal.AuthTransactions;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

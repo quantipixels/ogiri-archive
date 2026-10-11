@@ -9,6 +9,15 @@ import org.junit.jupiter.api.Test;
 
 class DevisePasswordEncoderTest {
     @Test
+    void migrationCostCanMatchTheDummyAndNewPasswordPolicy() {
+        var encoder = new DevisePasswordEncoder(10);
+        String hash = encoder.encode("migration-password");
+        org.junit.jupiter.api.Assertions.assertTrue(hash.startsWith("$2a$10$"));
+        org.junit.jupiter.api.Assertions.assertTrue(encoder.matches("migration-password", hash));
+        org.junit.jupiter.api.Assertions.assertFalse(encoder.matches("wrong", hash));
+    }
+
+    @Test
     void rubyCompatibleTruncationNeverDecodesPartialUtf8() {
         var encoder = new DevisePasswordEncoder();
         String base = "a".repeat(71) + "é";
