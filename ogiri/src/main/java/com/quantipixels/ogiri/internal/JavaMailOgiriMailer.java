@@ -4,8 +4,8 @@ package com.quantipixels.ogiri.internal;
 import com.quantipixels.ogiri.mail.OgiriMailer;
 import java.util.Locale;
 import org.springframework.context.MessageSource;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 
 public final class JavaMailOgiriMailer implements OgiriMailer {
     private final JavaMailSender sender;
@@ -34,18 +34,32 @@ public final class JavaMailOgiriMailer implements OgiriMailer {
     }
 
     private void send(String kind, String subject, String recipient, String link) {
-        var mail = new SimpleMailMessage();
-        mail.setFrom(from);
-        mail.setTo(recipient);
-        mail.setSubject(
-                messages.getMessage(
-                        "ogiri.mail." + kind + ".subject", null, subject, Locale.ENGLISH));
-        mail.setText(
-                messages.getMessage(
-                        "ogiri.mail." + kind + ".body",
-                        new Object[] {link},
-                        "Follow this link: {0}",
-                        Locale.ENGLISH));
-        sender.send(mail);
+        try {
+            var message = sender.createMimeMessage();
+            var mail = new MimeMessageHelper(message, true, "UTF-8");
+            mail.setFrom(from);
+            mail.setTo(recipient);
+            mail.setSubject(
+                    messages.getMessage(
+                            "ogiri.mail." + kind + ".subject", null, subject, Locale.ENGLISH));
+            String text =
+                    messages.getMessage(
+                            "ogiri.mail." + kind + ".body",
+                            new Object[] {link},
+                            "Follow this link: {0}",
+                            Locale.ENGLISH);
+            String escaped = org.springframework.web.util.HtmlUtils.htmlEscape(link);
+            String html =
+                    messages.getMessage(
+                            "ogiri.mail." + kind + ".html",
+                            new Object[] {escaped},
+                            "<a href=\"{0}\">Follow this link</a>",
+                            Locale.ENGLISH);
+            mail.setText(text, html);
+            sender.send(message);
+        } catch (jakarta.mail.MessagingException failure) {
+            throw new org.springframework.mail.MailPreparationException(
+                    "Unable to prepare Ogiri mail", failure);
+        }
     }
 }

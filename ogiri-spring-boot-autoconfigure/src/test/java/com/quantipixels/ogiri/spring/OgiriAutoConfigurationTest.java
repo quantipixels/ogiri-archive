@@ -35,6 +35,7 @@ class OgiriAutoConfigurationTest {
     }
 
     @Test
+    @Tag("database")
     void missingMailFailsWithActionableCause() {
         new WebApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(OgiriAutoConfiguration.class))
