@@ -92,7 +92,12 @@ class API:
         login_csrf: bool = True,
     ) -> httpx.Response:
         self.http.cookies.clear()
-        if self.login_csrf and login_csrf and method == "POST" and path.endswith("/sign_in"):
+        if (
+            self.login_csrf
+            and login_csrf
+            and method == "POST"
+            and (path.endswith("/sign_in") or path.rstrip("/") in {"/auth", "/admin_auth"})
+        ):
             # Bootstrap from an existing safe route; preserve explicit cookies and bad echoes.
             headers = dict(headers or {})
             cookie = headers.get("Cookie", "")

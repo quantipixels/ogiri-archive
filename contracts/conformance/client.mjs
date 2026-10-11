@@ -34,7 +34,7 @@ const trace = [];
 const httpWrapper = async (url, init = {}) => {
   const headers = new Headers(init.headers);
   if (profile === 'cookie') {
-    if (cookie) headers.set('Cookie', [cookie, csrf].filter(Boolean).join('; '));
+    if (cookie || csrf) headers.set('Cookie', [cookie, csrf].filter(Boolean).join('; '));
     if (csrf && !['GET', 'HEAD', 'OPTIONS'].includes(init.method ?? 'GET')) {
       headers.set('X-XSRF-TOKEN', decodeURIComponent(csrf.split('=').slice(1).join('=')));
     }
@@ -65,6 +65,10 @@ client = new Client({
   apiUrl: baseUrl, storage, transport: profile === 'cookie' ? 'cookies' : 'headers',
   httpWrapper, validateOnPageLoad: false, confirmationSuccessUrl: target,
 });
+if (profile === 'cookie') {
+  const bootstrap = await fetch(baseUrl + '/auth/sign_in');
+  csrf = bootstrap.headers.getSetCookie().find(c => c.startsWith('XSRF-TOKEN=')).split(';')[0];
+}
 const registration = await client.submitRegistration({email, password, password_confirmation: password});
 assert.equal(registration.status, 200);
 assert.equal(registration.data.status, 'success');

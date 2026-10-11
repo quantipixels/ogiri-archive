@@ -1,6 +1,6 @@
 # Ogiri protocol rev-3 HTTP parity suite
 
-The suite asserts PROTOCOL rev 3.3 for Ogiri and keeps the pinned Rails 8 + DTA `b02076a` + Devise `05811fb` wire behavior as the reference oracle. **Read [ORACLE.md](ORACLE.md)** for every round-1 disagreement and its rev-3 resolution. Deliberate differences have §13-labelled `ogiri_only` checks (skipped with `--reference`); native Rails expectations have `reference_only` checks (skipped on Ogiri). Adopted DTA behavior stays shared. Open contract questions are explicit skips, never fabricated expectations.
+The suite asserts PROTOCOL rev 3.5 for Ogiri and keeps the pinned Rails 8 + DTA `b02076a` + Devise `05811fb` wire behavior as the reference oracle. **Read [ORACLE.md](ORACLE.md)** for every round-1 disagreement and its rev-3 resolution. Deliberate differences have §13-labelled `ogiri_only` checks (skipped with `--reference`); native Rails expectations have `reference_only` checks (skipped on Ogiri). Adopted DTA behavior stays shared. Open contract questions are explicit skips, never fabricated expectations.
 
 ## Run the oracle
 
@@ -115,6 +115,18 @@ Session mutation helpers use epoch milliseconds for Ogiri and seconds in referen
 
 Rev 3.2/3.3 adds strict-profile D-A checks using `https://*.example.test/*`: deceptive fragment/query/userinfo redirects return the R5/P3 422 shape, while `https://app.example.test/reset` remains allowed. Default A3 views omit the fixture role unless explicitly configured; protected-route role checks still use that column. `PATCH /auth` clearing an earlier reset link and applying P6 is shared DTA proof. U2 sending no unlock mail for an unlocked account is Ogiri-only: pinned DTA sends mail anyway, with a separate reference observation. D-E's mail-outage response difference is documented in ORACLE; this round does not inject SMTP delivery failures.
 
-The Ogiri cookie profile bootstraps login CSRF from `GET /auth/sign_in` before POST sign-in. Dedicated K1 negative tests disable that helper to prove missing tokens reject without creating a session; the reference profile keeps native DTA login behavior. H2/K1 cases also exercise malformed/non-string Bearer fields, partial named headers, full Bearer precedence and cross-realm cookie rejection.
+The Ogiri cookie profile bootstraps sign-in and registration CSRF from `GET /auth/sign_in` before POST sign-in. Dedicated K1 negative tests disable that helper to prove missing tokens reject without creating a session; the reference profile keeps native DTA login behavior. H2/K1 cases also exercise malformed/non-string Bearer fields, partial named headers, full Bearer precedence and cross-realm cookie rejection.
 
 Run a specific profile through the repository gate with `bash scripts/platform/parity.sh full --profile cookie --sample-command '<sample launcher>' --no-build` (use `strict` for the second profile). The runner creates uniquely named throwaway containers and cleans them; local HTTP cookie runs must configure the sample's Secure cookie policy for local development.
+
+Rev 3.5 K1/D-K registration cases exercise JSON and HTML forms in both realms: missing CSRF returns the exact 403 body before any account/session insert; a valid echo issues the auth cookie. The published-client adapter bootstraps CSRF before registration. Cookie-mode batch responses leave the auth cookie unchanged.
+
+Run the combined cookie/rotation regression explicitly in addition to the five profiles:
+
+```sh
+contracts/conformance/run.sh --profile cookie --sample-command '<sample launcher>' \
+  --setting OGIRI_CHANGE_HEADERS_ON_EACH_REQUEST=true \
+  -- -k test_K1_H5_late_batch_preserves_rotated_auth_cookie
+```
+
+That case skips when rotation is disabled; the explicit combined run must execute it.

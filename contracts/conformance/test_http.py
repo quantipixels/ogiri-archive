@@ -1,4 +1,4 @@
-"""Wire parity: test names cite contract rev 3.3 behaviour ids."""
+"""Wire parity: test names cite contract rev 3.5 behaviour ids."""
 
 import base64
 import hashlib
@@ -1989,3 +1989,97 @@ def test_K1_source_precedence_and_realm_isolation(api: API) -> None:
         for c in signed_out.headers.get_list("set-cookie")
         if c.startswith("auth_cookie=")
     )
+
+
+@pytest.mark.profiles("cookie")
+@pytest.mark.ogiri_only("D-K rev 3.5: registration that signs in requires double-submit CSRF")
+@pytest.mark.parametrize("form", [True, False], ids=["form", "json"])
+@pytest.mark.parametrize(
+    "mount, table, auth_cookie",
+    [
+        ("/auth", "users", "auth_cookie"),
+        ("/admin_auth/", "admins", "admin_auth_cookie"),
+    ],
+)
+def test_K1_registration_csrf_before_account_and_session_creation(
+    api: API,
+    db: Database,
+    settings: Settings,
+    form: bool,
+    mount: str,
+    table: str,
+    auth_cookie: str,
+) -> None:
+    assert settings.env["OGIRI_CONFIRMABLE"] == "false"
+    payload = {
+        "email": "csrf-signup@example.com",
+        "password": PASSWORD,
+        "password_confirmation": PASSWORD,
+    }
+    # Table names are constrained by the parametrization; use fixed SQL per realm.
+    count_sql = "SELECT count(*) FROM users" if table == "users" else "SELECT count(*) FROM admins"
+    accounts = db.one(count_sql)
+    sessions = db.one("SELECT count(*) FROM ogiri_sessions")
+    rejected = api.request(
+        "POST",
+        mount,
+        data=payload if form else None,
+        json=None if form else payload,
+        login_csrf=False,
+    )
+    assert rejected.status_code == 403, rejected.text
+    assert rejected.json() == {"success": False, "errors": ["Invalid CSRF token"]}
+    assert db.one(count_sql) == accounts
+    assert db.one("SELECT count(*) FROM ogiri_sessions") == sessions
+    assert not any(c.startswith(auth_cookie + "=") for c in rejected.headers.get_list("set-cookie"))
+    bootstrap = api.request("GET", mount)
+    xsrf = next(
+        c.split(";", 1)[0]
+        for c in bootstrap.headers.get_list("set-cookie")
+        if c.startswith("XSRF-TOKEN=")
+    )
+    accepted = api.request(
+        "POST",
+        mount,
+        data=payload if form else None,
+        json=None if form else payload,
+        login_csrf=False,
+        headers={"Cookie": xsrf, "X-XSRF-TOKEN": unquote(xsrf.split("=", 1)[1])},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert any(c.startswith(auth_cookie + "=") for c in accepted.headers.get_list("set-cookie"))
+    assert db.one(count_sql) == accounts + 1
+    assert db.one("SELECT count(*) FROM ogiri_sessions") == sessions + 1
+
+
+@pytest.mark.profiles("cookie")
+@pytest.mark.ogiri_only("D-K rev 3.5: late batch responses cannot overwrite rotated auth cookies")
+def test_K1_H5_late_batch_preserves_rotated_auth_cookie(
+    api: API, db: Database, settings: Settings
+) -> None:
+    if settings.env["OGIRI_CHANGE_HEADERS_ON_EACH_REQUEST"] != "true":
+        pytest.skip("requires cookie profile with OGIRI_CHANGE_HEADERS_ON_EACH_REQUEST=true")
+    issued = api.signin()
+    assert issued.status_code == 200, issued.text
+    original = next(
+        c.split(";", 1)[0]
+        for c in issued.headers.get_list("set-cookie")
+        if c.startswith("auth_cookie=")
+    )
+    client = issued.headers["client"]
+    db.execute("UPDATE ogiri_sessions SET rotated_at=0 WHERE client=%s", (client,))
+    rotated = api.request("GET", "/me", headers={"Cookie": original})
+    assert rotated.status_code == 200, rotated.text
+    current = next(
+        c.split(";", 1)[0]
+        for c in rotated.headers.get_list("set-cookie")
+        if c.startswith("auth_cookie=")
+    )
+    assert current != original
+    late = api.request("GET", "/me", headers={"Cookie": original})
+    assert late.status_code == 200, late.text
+    assert not late.headers["access-token"].strip()
+    assert not any(c.startswith("auth_cookie=") for c in late.headers.get_list("set-cookie"))
+    db.execute("UPDATE ogiri_sessions SET rotated_at=0 WHERE client=%s", (client,))
+    assert api.request("GET", "/me", headers={"Cookie": original}).status_code == 401
+    assert api.request("GET", "/me", headers={"Cookie": current}).status_code == 200
