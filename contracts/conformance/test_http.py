@@ -517,6 +517,33 @@ def test_R9_anonymous_account_change(api: API, method: str, message: str) -> Non
     error(api.request(method, "/auth", json={"name": "Changed"}), 404, message, status="error")
 
 
+@pytest.mark.parametrize(
+    "method,message",
+    [
+        ("PUT", "User not found."),
+        ("PATCH", "User not found."),
+        ("DELETE", "Unable to locate account for destruction."),
+    ],
+)
+@pytest.mark.parametrize("state", ["revoked", "expired"])
+def test_R9_rejected_credentials_account_change(
+    api: API, db: Database, method: str, message: str, state: str
+) -> None:
+    values = api.login()
+    if state == "revoked":
+        response = api.request("DELETE", "/auth/sign_out", headers=values)
+        assert response.status_code == 200
+        assert response.json() == {"success": True}
+    else:
+        db.session_expiry(values, -1)
+    error(
+        api.request(method, "/auth", headers=values, json={"name": "Changed"}),
+        404,
+        message,
+        status="error",
+    )
+
+
 def test_R10_destroy_account_all_clients(api: API) -> None:
     first, second = api.login(), api.login()
     response = api.request("DELETE", "/auth", headers=first)
