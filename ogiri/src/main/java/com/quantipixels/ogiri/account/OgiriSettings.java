@@ -55,13 +55,14 @@ public record OgiriSettings(
         permittedFields = List.copyOf(permittedFields);
     }
 
-    /**
-     * Reject foreign session ownership before an endpoint or workflow touches this realm's store.
-     */
+    public com.quantipixels.ogiri.Subject subject(OgiriAccount account) {
+        return new com.quantipixels.ogiri.Subject(realm, "", account.id());
+    }
+
+    /** Services enforce ownership; endpoints check only operations without a service check. */
     public void requireOwner(OgiriAccount identity, com.quantipixels.ogiri.Session session) {
-        if (session == null
-                || !realm.equals(session.subject().realm())
-                || !identity.id().equals(session.subject().subjectId())) {
+        var expected = subject(identity);
+        if (session == null || !expected.equals(session.subject())) {
             throw new com.quantipixels.ogiri.DtaFailure(401, "Unauthorized");
         }
     }

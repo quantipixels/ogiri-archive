@@ -100,7 +100,7 @@ public final class SignInService {
     }
 
     public Subject subject(OgiriAccount account) {
-        return new Subject(settings.realm(), "", account.id());
+        return settings.subject(account);
     }
 
     public void checkActive(OgiriAccount account, long now) {

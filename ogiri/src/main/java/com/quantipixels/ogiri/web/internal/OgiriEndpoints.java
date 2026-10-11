@@ -116,8 +116,6 @@ public final class OgiriEndpoints {
                 authentication instanceof OgiriAuthentication current && current.isAuthenticated()
                         ? current
                         : null;
-        if (identity != null)
-            runtime.settings().requireOwner(identity.getPrincipal(), identity.session());
         var changed =
                 passwords.change(
                         identity == null ? null : identity.getPrincipal(),
@@ -242,7 +240,6 @@ public final class OgiriEndpoints {
 
     private OgiriAuthentication accountIdentity(Authentication authentication, String message) {
         if (authentication instanceof OgiriAuthentication identity && identity.isAuthenticated()) {
-            runtime.settings().requireOwner(identity.getPrincipal(), identity.session());
             return identity;
         }
         throw com.quantipixels.ogiri.account.RegistrationService.failure(404, message);

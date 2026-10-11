@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <parent><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-parent</artifactId><version>0.0.1</version><relativePath/></parent>
   <groupId>com.quantipixels.ogiri.examples</groupId><artifactId>spring-app</artifactId><version>0.0.1</version>
-  <properties><java.version>17</java.version><tomcat.version>11.0.26</tomcat.version><ogiri.version>0.0.1</ogiri.version></properties>
+  <properties><java.version>17</java.version><tomcat.version>11.0.26</tomcat.version></properties>
   <dependencyManagement><dependencies><dependency><groupId>tools.jackson</groupId><artifactId>jackson-bom</artifactId><version>3.1.7</version><type>pom</type><scope>import</scope></dependency><dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>42.7.13</version></dependency></dependencies></dependencyManagement>
   <dependencies>
     <dependency>
