@@ -21,3 +21,6 @@ e14643270bfdcc5cbc1113f852c272ce5a14ff3a:docs/authentication.md:generic-api-key:
 
 # Hard-coded testBearerToken fixture (JWT with only a sub claim).
 159553a06bdcae2bf2411eaa38b55f01d16ae4d5:ogiri-core/src/test/kotlin/com/quantipixels/ogiri/security/testutil/TestFixtures.kt:jwt:69
+
+# Protocol test vector: base64url of bytes 0..31 with og1_ prefix, not an issued credential.
+daf1dc6ccd226d810c84ea6e89385da68f603f07:packages/elixir/test/ogiri_test.exs:generic-api-key:119

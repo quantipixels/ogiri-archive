@@ -93,3 +93,27 @@ Contract questions (PROTOCOL remains untouched):
 - T5 refers to D3 retaining the most recent client, while D3 revokes every client. Suite follows D3 revoke-all. Recommendation: remove D3 from T5's recency sentence; recency applies to P6.
 - H2/K1 does not specify cookie-versus-Bearer order, or whether unchanged cookie writes may be suppressed. Recommendation: state cookie precedence and allow unchanged-cookie suppression explicitly if adopting the reference.
 - D-K specifies the CSRF requirement but no rejection status/body. The Ogiri check requires a 4xx without revocation and checks successful matching-token sign-out; settle the exact error shape before tightening it.
+
+## Rev-3.2/3.3 differences (round 6)
+
+- **D-A:** strict now uses `https://*.example.test/*`. New Ogiri-only R5/P3 cases reject deceptive fragments, queries and userinfo with the exact 422 body and no Location, and allow `https://app.example.test/reset`. Pinned DTA uses a raw-string wildcard regex in [Url.whitelisted?](https://github.com/lynndylanhurley/devise_token_auth/blob/b02076a930f7d0a4a155e25feaa7a50b86dbc625/lib/devise_token_auth/url.rb#L20); these rejection checks skip with `--reference`.
+- **D-V:** the A1 defaults are 10 full-view fields and 8 token-view fields, with exact sets asserted on Ogiri. The suite fixture additionally adds `role` for `/admin`; native DTA exposes it through [token_validation_response](https://github.com/lynndylanhurley/devise_token_auth/blob/b02076a930f7d0a4a155e25feaa7a50b86dbc625/app/models/devise_token_auth/concerns/user.rb#L227). Its reference expectation includes only that known extra field. The explicit Ogiri-only default-view check rejects this unconfigured field on sign-in, validation, update and registration; the shared account checks use exact defaults plus the documented reference-only fixture field. No extra-fields configuration is needed to authorize routes from the stored role.
+- **D-E:** rev 3.3 keeps paranoid recovery at the normal 200 body even when SMTP delivery fails; non-paranoid delivery failure is H8's 503 and preserves the committed token. Native DTA calls notification delivery for known accounts but returns success without delivery for unknown paranoid accounts, so an SMTP failure can reveal existence. No SMTP-fault injection was run here; green reference profiles do not prove this deliberate difference.
+
+Shared **R6/P6**: a real reset email is issued before `PATCH /auth`; the password change clears its stored reset token/time, the old link then returns 404, and strict revokes the older client while preserving the newest. A focused strict oracle run passed this new check.
+
+**U2/U3 are not shared in this oracle:** the initial no-mail check failed against native DTA with one actual unlock email for the already-unlocked fixture account. [UnlocksController#create](https://github.com/lynndylanhurley/devise_token_auth/blob/b02076a930f7d0a4a155e25feaa7a50b86dbc625/app/controllers/devise_token_auth/unlocks_controller.rb#L18) calls the instance sender directly, bypassing [Devise resend_unlock_instructions / if_access_locked](https://github.com/heartcombo/devise/blob/05811fb8366edd08874111d0f6fb44543e1c91ef/lib/devise/models/lockable.rb#L83). The no-mail/no-token check is therefore Ogiri-only, with a reference-only check retaining this observed DTA behavior. PROTOCOL is untouched.
+
+## Round-6 oracle proof (2026-10-11)
+
+After merging PROTOCOL rev 3.3 (`f7ee979`), rebuilding `ogiri-suite-rails-reference`, and resolving Ruby 3.4.11 / Rails 8.0.5.1 / Puma 7.2.1 in the actual image, each profile ran separately and sequentially with `mise exec -- contracts/conformance/run.sh --profile PROFILE --cross-backend --no-build`. Every command exited 0; JUnit files in ignored `results/` independently confirm 138 cases per profile, zero failures/errors, and passing AC2, AC3 and the new shared R6/P6 check.
+
+| Profile | Previous passed / skipped | r6 passed / skipped | Delta passed / skipped | Failures / errors |
+| --- | ---: | ---: | ---: | ---: |
+| default | 65 / 61 | 66 / 72 | +1 / +11 | 0 / 0 |
+| strict | 86 / 40 | 88 / 50 | +2 / +10 | 0 / 0 |
+| reset-token | 65 / 61 | 66 / 72 | +1 / +11 | 0 / 0 |
+| rotation | 66 / 60 | 67 / 71 | +1 / +11 | 0 / 0 |
+| cookie | 67 / 59 | 68 / 70 | +1 / +11 | 0 / 0 |
+
+Total: **355 passed, 335 skipped, zero failures/errors**, versus 349/281 previously. Twelve new cases per profile account for +6 passes and +54 skips over five profiles: one shared R6/P6 case in each profile, one native U2 observation in strict, and explicit Ogiri-only/profile skips. Oracle agreement does not prove the new Ogiri-only redirect/view/unlock checks; no Ogiri backend or SMTP-fault scenario was run. Ruff, strict Pyright and `mise run check` passed at the suite checkpoint. Every run's containers and anonymous database volume were removed by the owner-aware runner; the separate gate and image-proof containers were also removed.

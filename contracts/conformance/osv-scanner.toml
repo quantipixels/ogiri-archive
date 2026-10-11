@@ -1,0 +1,5 @@
+# Applies only to lockfiles in this test-only conformance directory.
+[[IgnoredVulns]]
+id = "GHSA-qjx8-664m-686j"
+ignoreUntil = 2027-01-09
+reason = "js-cookie 2.2.1 is used only by the test-only vanilla-token-auth 1.0.6 conformance client (AC3), which is not shipped. Its unmodified cookie storage relies on v2 object serialization: js-cookie 3.0.7 writes [object Object] and credential retrieval returns null. Retain the published client for interoperability proof; revisit upstream compatibility before expiry."

@@ -29,7 +29,6 @@ FULL_KEYS = {
     "name",
     "nickname",
     "image",
-    "role",
     "allow_password_change",
     "created_at",
     "updated_at",
@@ -208,9 +207,16 @@ def auth_headers(
             assert bearer == values
 
 
+def account_keys(settings: Settings, *, full: bool = False) -> set[str]:
+    keys = FULL_KEYS if full else TOKEN_KEYS
+    # The oracle fixture adds role; native DTA exposes every non-secret column (D-V).
+    return keys | ({"role"} if settings.reference else set())
+
+
 def account(
     response: httpx.Response,
     email: str,
+    settings: Settings,
     *,
     full: bool = False,
     name: str | None = None,
@@ -218,7 +224,8 @@ def account(
     allow: bool = False,
 ) -> dict[str, Any]:
     data: dict[str, Any] = response.json()["data"]
-    assert set(data) == (FULL_KEYS if full else TOKEN_KEYS), data
+    assert response.status_code == 200, response.text
+    assert set(data) == account_keys(settings, full=full), data
     assert data == {
         **({k: data[k] for k in ("created_at", "updated_at")} if full else {}),
         "id": data["id"],
@@ -228,7 +235,7 @@ def account(
         "name": name,
         "nickname": None,
         "image": None,
-        "role": role,
+        **({"role": role} if settings.reference else {}),
         "allow_password_change": allow,
     }
     assert isinstance(data["id"], int)
