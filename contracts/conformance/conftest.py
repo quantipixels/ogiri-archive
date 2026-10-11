@@ -26,6 +26,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(
                 pytest.mark.skip(reason="requires profile: " + ", ".join(profiles.args))
             )
+        reference = item.get_closest_marker("reference_only")
+        if reference and not config.getoption("reference"):
+            item.add_marker(pytest.mark.skip(reason="DTA reference-only: " + reference.args[0]))
         only = item.get_closest_marker("ogiri_only")
         if only and config.getoption("reference"):
             item.add_marker(pytest.mark.skip(reason="Ogiri-only: " + only.args[0]))
@@ -71,7 +74,12 @@ def mail(settings: Settings) -> Iterator[Mailbox]:
 @pytest.fixture(autouse=True)
 def fresh_fixture(request: pytest.FixtureRequest) -> None:
     if request.config.getoption("read_only"):
-        if request.node.name not in {"test_V2_invalid_validate", "test_S5_get_signin"}:
+        # pytest leaves FixtureRequest.node unannotated; this fixture has function scope.
+        item = cast(pytest.Item, request.node)  # pyright: ignore[reportUnknownMemberType]
+        if item.name not in {
+            "test_V2_invalid_validate",
+            "test_S5_get_signin",
+        }:
             pytest.fail("--read-only supports only anonymous V2 and GET S5 checks")
         return
     db = cast(Database, request.getfixturevalue("db"))

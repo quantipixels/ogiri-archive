@@ -1,6 +1,6 @@
-# Ogiri v2 HTTP parity suite
+# Ogiri protocol rev-3 HTTP parity suite
 
-The expected wire behavior comes from real Rails 8 + DTA `b02076a` + Devise `05811fb`, with exact response keys/messages, headers and mail links. **Read [ORACLE.md](ORACLE.md) before changing a library to match a failing test:** several rev 2.1 contract claims disagree with DTA, including error cases that return 500. The contract is untouched. The suite follows the observed oracle for those cases; Ogiri's deliberate transport/storage differences and added device APIs have separate `ogiri_only` checks.
+The suite asserts PROTOCOL rev 3.0 for Ogiri and keeps the pinned Rails 8 + DTA `b02076a` + Devise `05811fb` wire behavior as the reference oracle. **Read [ORACLE.md](ORACLE.md)** for every round-1 disagreement and its rev-3 resolution. Deliberate differences have §13-labelled `ogiri_only` checks (skipped with `--reference`); native Rails expectations have `reference_only` checks (skipped on Ogiri). Adopted DTA behavior stays shared. Open contract questions are explicit skips, never fabricated expectations.
 
 ## Run the oracle
 
@@ -87,9 +87,9 @@ Override names in the table have the `OGIRI_` prefix. The Rails adapter maps sec
 
 ## Coverage and proof boundary
 
-Names cite H1–H8, S1–S8, V1–V2, R1–R11, P1–P6, C1–C2, U1–U3, E1, K1, G1, A1–A5, D1–D3, T1–T4; O1 is an explicit skip. Every test applies to all profiles unless decorated with `profiles`. Reference skips identify D-Q, D-R, D-S, the Ogiri device APIs, and T2 storage semantics. Configured redirect defaults are exercised by the second variant above. Visible S3/S4 and non-paranoid confirmation/unlock responses are exercised by the first variant. Optional AC2 skips only when no peer URL exists. H8's store-outage check needs the runner-owned database container; it stops/restarts only that container and restores readiness in `finally`.
+Names cite H1–H8, S1–S8, V1–V2, R1–R11, P1–P6, C1–C2, U1–U3, E1, K1, G1, A1–A5, D1–D3, T1–T5; O1 is an explicit skip. Every test applies to all profiles unless decorated with `profiles`. Reference skips identify §13 D-Q, D-R, D-S, D-T, D-H, D-L, D-B, D-C, D-K and D-M/E1, device APIs and T2/T5 storage semantics. D-P needs configuration/source review; there is no pepper setting in the HTTP sample interface. Configured redirect defaults are exercised by the second variant above. Visible S3/S4 and non-paranoid confirmation/unlock responses are exercised by the first variant. Optional AC2 skips only when no peer URL exists. H8's store-outage check needs the runner-owned database container; it stops/restarts only that container and restores readiness in `finally`.
 
-HTTP assertions use the real response. Account views require exact column sets; IDs and creation timestamps are generated values, checked for type/UTC syntax. Tests do not reimplement the Rails controllers. Email links are read through Mailpit's HTTP API, recipients/config/redirect/token storage are checked (confirmation is raw in pinned Devise), and links are requested without following external redirects. U3's malformed DTA `Location` needs a raw httpx transport because httpx's high-level client rejects it even when redirects are disabled.
+HTTP assertions use the real response. Account views require exact column sets; IDs and creation timestamps are generated values, checked for type/UTC syntax. Tests do not reimplement the Rails controllers. Email links are read through Mailpit's HTTP API, recipients/config/redirect/token storage are checked (confirmation is raw in pinned Devise; Ogiri checks all three SHA-256 hex digests), and links are requested without following external redirects. U3's malformed DTA `Location` needs a raw httpx transport because httpx's high-level client rejects it even when redirects are disabled.
 
 Expiry, reset windows, lock duration and device eviction change database timestamps. Only the batch-buffer test waits for real time; bounded container/database readiness waits are infrastructure checks. Oracle session expiry changes `users.tokens`; Ogiri expiry changes `ogiri_sessions`. Tests are sequential; do not use pytest-xdist against one database.
 
@@ -97,7 +97,7 @@ T1/T4 verify separate session storage, SHA-256 digest and subject lock key. T2 v
 
 ## Real JavaScript client (AC3)
 
-`client.mjs` calls the published `vanilla-token-auth@1.0.6` methods `submitRegistration`, `submitLogin`, `validateToken`, and `signOut`; pytest runs Node and asserts the actual four HTTP requests and post-sign-out rejection. Strict follows the confirmation email first; cookie transport uses the actual DTA auth cookie. Native Node Fetch supplies HTTP, the documented `httpWrapper` supplies header interception/cookie storage, and a small browser-facility adapter supplies local storage and timers. No authentication endpoint or auth library method is mocked.
+`client.mjs` calls the published `vanilla-token-auth@1.0.6` methods `submitRegistration`, `submitLogin`, `validateToken`, and `signOut`; pytest runs Node and asserts the actual four HTTP requests and post-sign-out rejection. Strict follows the confirmation email first; cookie transport uses the actual auth cookie and echoes the real XSRF-TOKEN in X-XSRF-TOKEN for unsafe requests when supplied by Ogiri. Native Node Fetch supplies HTTP, the documented `httpWrapper` supplies header interception/cookie storage, and a small browser-facility adapter supplies local storage and timers. No authentication endpoint or auth library method is mocked.
 
 Chosen because [DTA recommends vanilla-token-auth](https://github.com/lynndylanhurley/devise_token_auth#client-libraries) and [upstream documents Fetch/header interception and cookie transport](https://github.com/theblang/vanilla-token-auth#readme). It needs only `js-cookie`, avoiding the old Axios dependency in `devise-token-auth-client@0.0.55`. Version and integrity are pinned in `package-lock.json`; installation scripts are disabled. **Active current maintenance has not been established**: the latest npm release is from 2022. This is proven published-client interoperability, not a claim that the client is actively maintained in 2026.
 
@@ -106,7 +106,9 @@ Chosen because [DTA recommends vanilla-token-auth](https://github.com/lynndylanh
 ```sh
 uv run --project contracts/conformance ruff check contracts/conformance
 uv run --project contracts/conformance ruff format --check contracts/conformance
-uv run --project contracts/conformance pyright contracts/conformance
+uv run --project contracts/conformance pyright --project contracts/conformance
 ```
 
 Ruff enables security (`S`), annotations, imports, bugbear, simplification and modern Python rules. Only necessary test-assert/public-fixture-credential and fixed local subprocess exceptions are scoped to tests/runner. Pyright uses strict mode. Dependencies are pytest/httpx and the small psycopg binary DB adapter; tooling is in the dev group.
+
+Session mutation helpers use epoch milliseconds for Ogiri and seconds in reference users.tokens. T5 checks database-clock bounds and expiry-header flooring; P6 deliberately separates expiry ordering from (created_at, id), including a creation-time tie. D3 remains revoke-all pending the T5 wording correction. See ORACLE for C1/R11, R6 and cookie contract questions.

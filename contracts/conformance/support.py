@@ -4,6 +4,8 @@ import base64
 import html
 import json
 import re
+import socket
+import ssl
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -95,11 +97,50 @@ class API:
         # DTA U3 emits a malformed Location; Client.request parses it even without following.
         # The raw transport preserves the exact response for the regression assertion.
         with httpx.HTTPTransport() as transport:
-            request = httpx.Request("GET", self.url + path)
+            request = httpx.Request(
+                "GET",
+                self.url + path,
+                extensions={"timeout": {"connect": 15, "read": 15, "write": 15, "pool": 15}},
+            )
             response = transport.handle_request(request)
             response.read()
             response.request = request
             return response
+
+    def wire_batch_headers(self, headers: dict[str, str]) -> dict[str, bytes]:
+        """Read real HTTP bytes: h11 strips OWS, hiding DTA's literal one-space value."""
+        url = urlsplit(self.url)
+        assert url.hostname is not None
+        port = url.port or (443 if url.scheme == "https" else 80)
+        request_headers = {"Host": url.netloc, "Connection": "close", **headers}
+        assert all("\r" not in v and "\n" not in v for v in request_headers.values())
+        request = (
+            "GET /me HTTP/1.1\r\n"
+            + "".join(f"{key}: {value}\r\n" for key, value in request_headers.items())
+            + "\r\n"
+        )
+        with socket.create_connection((url.hostname, port), timeout=15) as connection:
+            stream = (
+                ssl.create_default_context().wrap_socket(connection, server_hostname=url.hostname)
+                if url.scheme == "https"
+                else connection
+            )
+            with stream:
+                stream.sendall(request.encode("ascii"))
+                raw = b""
+                while b"\r\n\r\n" not in raw:
+                    chunk = stream.recv(4096)
+                    assert chunk, "response ended before its headers"
+                    raw += chunk
+                    assert len(raw) <= 65536, "oversized response headers"
+        head = raw.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
+        assert head[0].split()[1] == b"200", head[0]
+        values: dict[str, bytes] = {}
+        for line in head[1:]:
+            key, separator, value = line.partition(b": ")
+            assert separator, line
+            values[key.decode("ascii").lower()] = value
+        return values
 
     def signin(self, email: str = DEMO, password: str = PASSWORD) -> httpx.Response:
         return self.request("POST", "/auth/sign_in", json={"email": email, "password": password})
@@ -145,10 +186,10 @@ def auth_headers(
     assert values["uid"]
     assert re.fullmatch(r"[A-Za-z0-9_-]{22}", values["client"])
     if batch:
-        assert values["access-token"].strip() == ""
-        assert values["expiry"].strip() == ""
+        assert values["access-token"] == ""
+        assert values["expiry"] == ""
     else:
-        size = 22
+        size = 22 if settings.reference else 43
         assert re.fullmatch(r"[A-Za-z0-9_-]{" + str(size) + "}", values["access-token"])
         assert values["expiry"].isdecimal()
     if settings.profile == "cookie":
@@ -249,11 +290,12 @@ class Database:
         else:
             self.execute(
                 (
-                    "UPDATE ogiri_sessions SET created_at=extract(epoch FROM "
-                    "clock_timestamp())::bigint - 1000, expires_at=extract(epoch FROM "
-                    "clock_timestamp())::bigint + %s WHERE client=%s"
+                    "UPDATE ogiri_sessions SET created_at=least(created_at, "
+                    "floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint + %s * 1000 - 1), "
+                    "expires_at=floor(extract(epoch FROM "
+                    "clock_timestamp()) * 1000)::bigint + %s * 1000 WHERE client=%s"
                 ),
-                (seconds, headers["client"]),
+                (seconds, seconds, headers["client"]),
             )
 
     def reset(self) -> None:
