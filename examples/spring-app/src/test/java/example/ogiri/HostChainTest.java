@@ -1,81 +1,151 @@
 // SPDX-License-Identifier: Apache-2.0
 package example.ogiri;
 
-import static org.junit.jupiter.api.Assertions.*;
-import com.quantipixels.ogiri.*;
-import com.quantipixels.ogiri.spring.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import com.quantipixels.ogiri.security.OgiriConfigurer;
+import com.quantipixels.ogiri.security.OgiriRealms;
 import java.net.URI;
-import java.net.http.*;
-import java.time.Duration;
-import java.util.concurrent.atomic.AtomicBoolean;
-import org.junit.jupiter.api.*;
-import org.springframework.beans.factory.annotation.*;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.*;
-import org.springframework.core.annotation.Order;
-import org.springframework.security.authentication.*;
+import org.springframework.context.annotation.Bean;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.core.*;
-import org.springframework.security.core.userdetails.*;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.web.bind.annotation.*;
 
-@SpringBootTest(classes = {Application.class, HostChainTest.Host.class}, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.datasource.url=${OGIRI_TEST_JDBC_URL}", "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
-        "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}", "spring.profiles.active=demo",
-        "ogiri.endpoints-enabled=false"
-})
+@SpringBootTest(
+        classes = {Application.class, HostChainTest.Host.class, HostChainTest.BasicHost.class},
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+            "spring.datasource.url=${OGIRI_TEST_JDBC_URL}",
+            "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
+            "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
+            "spring.profiles.active=demo"
+        })
 class HostChainTest {
-    @Autowired JdbcSessions sessions;
-    @Autowired org.springframework.context.ApplicationContext context;
-    @Value("${local.server.port}") int port;
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
-    static final AtomicBoolean offline = new AtomicBoolean();
+    @Value("${local.server.port}")
+    int port;
 
     @TestConfiguration(proxyBeanMethods = false)
     static class Host {
-        @Bean OgiriAccounts scopedAccounts() {
-            return new OgiriAccounts() {
-                public Subject subject(Authentication authentication) { return new Subject("accounts", "tenant", "42"); }
-                public UserDetails load(Subject subject) {
-                    if (offline.get()) throw new IllegalStateException("private directory failure");
-                    if (!subject.equals(new Subject("accounts", "tenant", "42"))) throw new UsernameNotFoundException("foreign");
-                    return User.withUsername("mutable-name").password("unused").roles("USER").build();
-                }
-            };
-        }
-        @Bean @Order(1) SecurityFilterChain publicChain(HttpSecurity http) throws Exception {
-            return http.securityMatcher("/public/**").authorizeHttpRequests(routes -> routes.anyRequest().permitAll()).build();
-        }
-        @Bean @Order(2) SecurityFilterChain applicationChain(HttpSecurity http, OgiriSecurity ogiri) throws Exception {
-            ogiri.configure(http);
-            return http.authorizeHttpRequests(routes -> routes.dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
-                    .requestMatchers("/auth/**").denyAll().anyRequest().authenticated()).build();
+        @Bean
+        SecurityFilterChain hostChain(HttpSecurity http, OgiriRealms realms) throws Exception {
+            http.with(OgiriConfigurer.ogiri(realms), config -> {});
+            http.httpBasic(org.springframework.security.config.Customizer.withDefaults());
+            return http.authorizeHttpRequests(
+                            routes ->
+                                    routes.dispatcherTypeMatchers(
+                                                    jakarta.servlet.DispatcherType.ERROR)
+                                            .permitAll()
+                                            .requestMatchers("/auth/**", "/admin_auth/**")
+                                            .permitAll()
+                                            .anyRequest()
+                                            .authenticated())
+                    .build();
         }
     }
 
-    @Test void customChainsAndFullIdentityMappingRemainAuthoritative() throws Exception {
-        assertEquals(2, context.getBeansOfType(SecurityFilterChain.class).size());
-        assertEquals(0, context.getBeansOfType(OgiriEndpoints.class).size());
-        var token = sessions.issue(new Subject("accounts", "tenant", "42"), "host").token();
-        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/me"))
-                .header("Authorization", "Bearer " + token).GET().build();
-        var response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, response.statusCode());
-        assertEquals("42", response.body());
-        // Host's unrelated public write still requires CSRF.
-        var post = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/public/write"))
-                .POST(HttpRequest.BodyPublishers.noBody()).build();
-        assertEquals(403, HTTP.send(post, HttpResponse.BodyHandlers.ofString()).statusCode());
-        var disabled = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/auth/sessions"))
-                .header("Authorization", "Bearer " + token).GET().build();
-        assertEquals(403, HTTP.send(disabled, HttpResponse.BodyHandlers.ofString()).statusCode());
-        try {
-            offline.set(true);
-            var outage = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
-            assertEquals(500, outage.statusCode());
-            assertFalse(outage.body().contains("private directory failure"));
-        } finally { offline.set(false); sessions.revokeAll(new Subject("accounts", "tenant", "42")); }
+    @TestConfiguration(proxyBeanMethods = false)
+    @org.springframework.web.bind.annotation.RestController
+    static class BasicHost {
+        @Bean
+        org.springframework.security.authentication.AuthenticationManagerResolver<
+                        jakarta.servlet.http.HttpServletRequest>
+                hostAuthenticationManagers() {
+            return request ->
+                    authentication -> {
+                        throw new org.springframework.security.authentication
+                                .ProviderNotFoundException(
+                                "Host resolver does not support Ogiri tokens");
+                    };
+        }
+
+        @Bean
+        org.springframework.security.core.userdetails.UserDetailsService basicUsers() {
+            return new org.springframework.security.provisioning.InMemoryUserDetailsManager(
+                    org.springframework.security.core.userdetails.User.withUsername("host")
+                            .password("{noop}host-password")
+                            .roles("HOST")
+                            .build());
+        }
+
+        @org.springframework.web.bind.annotation.GetMapping("/host")
+        public java.util.Map<String, String> host(
+                org.springframework.security.core.Authentication authentication) {
+            return java.util.Map.of("name", authentication.getName());
+        }
+    }
+
+    @Test
+    void basicIdentitySurvivesAbsentOgiriAndMixedCredentialsAreRejected() throws Exception {
+        String basic =
+                java.util.Base64.getEncoder()
+                        .encodeToString(
+                                "host:host-password"
+                                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var builder =
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/host"))
+                        .header("Authorization", "Basic " + basic);
+        var client = HttpClient.newHttpClient();
+        var response = client.send(builder.GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals("{\"name\":\"host\"}", response.body());
+        response =
+                client.send(
+                        builder.header("uid", "demo@example.com")
+                                .header("access-token", "stale")
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertEquals(401, response.statusCode(), response.body());
+    }
+
+    @Test
+    void hostResolverDoesNotDisplaceOgiriTokenAuthentication() throws Exception {
+        var client = HttpClient.newHttpClient();
+        var login =
+                client.send(
+                        HttpRequest.newBuilder(
+                                        URI.create("http://localhost:" + port + "/auth/sign_in"))
+                                .header("Content-Type", "application/x-www-form-urlencoded")
+                                .POST(
+                                        HttpRequest.BodyPublishers.ofString(
+                                                "email=demo%40example.com&password=test-password"))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, login.statusCode(), login.body());
+        var validated =
+                client.send(
+                        HttpRequest.newBuilder(
+                                        URI.create(
+                                                "http://localhost:"
+                                                        + port
+                                                        + "/auth/validate_token"))
+                                .header(
+                                        "Authorization",
+                                        login.headers().firstValue("Authorization").orElseThrow())
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, validated.statusCode(), validated.body());
+    }
+
+    @Test
+    void customChainUsesPublicConfigurerAndStaleHeadersDoNotBlockSignIn() throws Exception {
+        var request =
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/auth/sign_in"))
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .header("Authorization", "Bearer stale")
+                        .POST(
+                                HttpRequest.BodyPublishers.ofString(
+                                        "email=demo%40example.com&password=test-password"))
+                        .build();
+        var response =
+                HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode(), response.body());
     }
 }

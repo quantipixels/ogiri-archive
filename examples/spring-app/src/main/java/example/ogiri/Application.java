@@ -1,36 +1,59 @@
 // SPDX-License-Identifier: Apache-2.0
 package example.ogiri;
 
-import java.security.Principal;
+import com.quantipixels.ogiri.account.OgiriAccount;
+import com.quantipixels.ogiri.account.OgiriAuthorities;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
-import org.springframework.security.core.userdetails.*;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @SpringBootApplication
 @EnableMethodSecurity
 @RestController
 public class Application {
-    public static void main(String[] args) { SpringApplication.run(Application.class, args); }
-
-    /** The existing DeviseTokenAuth users table is the account directory; its bcrypt hashes verify unchanged. */
-    @Bean
-    UserDetailsService accounts(JdbcClient db) {
-        return email -> db.sql("SELECT email, encrypted_password, role, locked_at IS NOT NULL AS locked FROM users WHERE email = ?")
-                .param(email)
-                .query((row, n) -> User.withUsername(row.getString("email"))
-                        .password(row.getString("encrypted_password"))
-                        .roles(row.getString("role").toUpperCase(java.util.Locale.ROOT))
-                        .accountLocked(row.getBoolean("locked"))
-                        .build())
-                .optional()
-                .orElseThrow(() -> new UsernameNotFoundException("Unknown account"));
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
     }
 
-    @GetMapping(value = "/me", produces = "text/plain") String me(Principal principal) { return principal.getName(); }
-    @GetMapping(value = "/admin", produces = "text/plain") @PreAuthorize("hasRole('ADMIN')") String admin() { return "admin"; }
+    @Bean
+    org.springframework.web.cors.UrlBasedCorsConfigurationSource corsConfigurationSource() {
+        var cors = new org.springframework.web.cors.CorsConfiguration();
+        cors.setAllowedOriginPatterns(List.of("*"));
+        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        cors.setAllowedHeaders(List.of("*"));
+        com.quantipixels.ogiri.security.OgiriConfigurer.exposeHeaders(cors);
+        var source = new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", cors);
+        return source;
+    }
+
+    @Bean
+    OgiriAuthorities roles() {
+        return attributes ->
+                List.of(
+                        new SimpleGrantedAuthority(
+                                "ROLE_"
+                                        + String.valueOf(attributes.getOrDefault("role", "user"))
+                                                .toUpperCase(Locale.ROOT)));
+    }
+
+    @GetMapping("/me")
+    public Map<String, String> me(@AuthenticationPrincipal OgiriAccount account) {
+        return Map.of("uid", account.uid());
+    }
+
+    @GetMapping("/admin")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, String> admin(@AuthenticationPrincipal OgiriAccount account) {
+        return Map.of("uid", account.uid());
+    }
 }

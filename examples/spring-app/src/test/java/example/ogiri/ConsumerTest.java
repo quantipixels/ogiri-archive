@@ -1,96 +1,177 @@
 // SPDX-License-Identifier: Apache-2.0
 package example.ogiri;
 
-import static org.junit.jupiter.api.Assertions.*;
-import com.quantipixels.ogiri.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import java.net.URI;
-import java.net.http.*;
-import java.time.Duration;
-import java.util.UUID;
-import javax.sql.DataSource;
-import org.junit.jupiter.api.*;
-import org.springframework.beans.factory.annotation.Autowired;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.datasource.url=${OGIRI_TEST_JDBC_URL}",
-        "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
-        "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
-        "spring.datasource.hikari.maximum-pool-size=1",
-        "spring.profiles.active=demo"
-})
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+            "spring.datasource.url=${OGIRI_TEST_JDBC_URL}",
+            "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
+            "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
+            "spring.datasource.hikari.maximum-pool-size=1",
+            "spring.profiles.active=demo",
+            "ogiri.account.columns=role"
+        })
 class ConsumerTest {
-    @Value("${local.server.port}") private int port;
-    @Autowired private JdbcSessions sessions;
-    @Autowired private DataSource dataSource;
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+    @Value("${local.server.port}")
+    int port;
 
-    @BeforeEach void emptyDatabase() throws Exception {
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) { statement.execute("TRUNCATE ogiri_sessions"); }
-    }
+    @org.springframework.beans.factory.annotation.Autowired
+    org.springframework.jdbc.core.JdbcTemplate jdbc;
 
-    @Test void installedArtifactsServeTheFullSessionLifecycleThroughTheNativeSecurityChain() throws Exception {
+    private final HttpClient http = HttpClient.newHttpClient();
+
+    @Test
+    void installedArtifactsServeDtaWithOnePooledConnection() throws Exception {
         assertEquals(401, request("GET", "/me", null, null).statusCode());
-        var login = login("test-password");
-        assertEquals(201, login.statusCode());
-        assertTrue(login.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
-        String bearer = login.headers().firstValue("Authorization").orElseThrow();
-        assertFalse(login.body().contains(bearer.substring(7)), "Response JSON must not contain the credential");
-        UUID id = sessions.list(new Subject("users", "", "demo@example.com")).get(0).id();
-        assertEquals(200, request("GET", "/me", null, bearer).statusCode());
-        assertEquals(200, request("GET", "/auth/sessions", null, bearer).statusCode());
-        assertEquals(403, request("GET", "/admin", null, bearer).statusCode());
-        var foreign = sessions.issue(new Subject("users", "another-tenant", "demo@example.com"), "foreign");
-        assertEquals(404, request("DELETE", "/auth/sessions/" + foreign.session().id(), null, bearer).statusCode());
-        assertTrue(sessions.authenticate(foreign.token()).isPresent());
-        assertEquals(204, request("DELETE", "/auth/sessions/" + id, null, bearer).statusCode());
-        assertEquals(401, request("GET", "/me", null, bearer).statusCode());
+        assertEquals(401, request("GET", "/auth/sessions/adopter", null, null).statusCode());
+        var login =
+                request(
+                        "POST",
+                        "/auth/sign_in",
+                        "{\"email\": \" DEMO@example.com \", \"password\": \"test-password\"}",
+                        "Bearer stale");
+        assertEquals(200, login.statusCode(), login.body());
+        String bundle = login.headers().firstValue("Authorization").orElseThrow();
+        String client = login.headers().firstValue("client").orElseThrow();
+        assertEquals(43, login.headers().firstValue("access-token").orElseThrow().length());
+        assertTrue(login.headers().firstValue("Cache-Control").orElseThrow().contains("no-store"));
+        assertFalse(login.body().contains("encrypted_password"));
+        assertEquals(200, request("GET", "/me", null, bundle).statusCode());
+        assertEquals(
+                Map.of("uid", "demo@example.com"),
+                JsonMapper.builder()
+                        .build()
+                        .readValue(request("GET", "/me", null, bundle).body(), Map.class));
+        var browser =
+                http.send(
+                        HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/me"))
+                                .header("Authorization", bundle)
+                                .header("Origin", "https://client.example.test")
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, browser.statusCode(), browser.body());
+        assertTrue(
+                browser.headers()
+                        .firstValue("access-control-expose-headers")
+                        .orElseThrow()
+                        .contains("access-token"));
+        assertEquals(403, request("GET", "/admin", null, bundle).statusCode());
+        assertEquals(200, request("GET", "/auth/validate_token", null, bundle).statusCode());
+        var logout = request("DELETE", "/auth/sessions/" + client, null, bundle);
+        assertEquals(200, logout.statusCode());
+        assertTrue(logout.headers().firstValue("access-token").isEmpty());
+        assertEquals(401, request("GET", "/me", null, bundle).statusCode());
+        assertEquals(404, request("DELETE", "/auth/sign_out", null, bundle).statusCode());
     }
 
-    @Test void invalidLoginSimpleCrossSitePostsAndAmbiguousBearerTransportAreRejected() throws Exception {
-        assertEquals(401, login("wrong-password").statusCode());
-        for (String contentType : new String[] {"text/plain", "application/json"}) {
-            var rejected = request("POST", "/auth/sign-in", contentType, null);
-            assertEquals(403, rejected.statusCode());
-            assertTrue(rejected.headers().allValues("Set-Cookie").isEmpty(), "Rejected sign-in must not start a cookie session");
+    @Test
+    void registrationValidatesPermittedFieldsAndDestroysEveryClient() throws Exception {
+        String email = "new-" + java.util.UUID.randomUUID() + "@example.com";
+        String data =
+                "{\"email\":\""
+                        + email
+                        + "\",\"password\":\"test-password\",\"password_confirmation\":\"test-password\",\"role\":\"admin\",\"uid\":\"forged\"}";
+        var created = request("POST", "/auth", data, "Bearer stale");
+        assertEquals(200, created.statusCode(), created.body());
+        assertFalse(created.body().contains("encrypted_password"));
+        var view = JsonMapper.builder().build().readTree(created.body()).get("data");
+        assertEquals(email, view.get("uid").asText());
+        assertEquals("user", view.get("role").asText());
+        var duplicate = request("POST", "/auth", data, null);
+        assertEquals(422, duplicate.statusCode(), duplicate.body());
+        assertTrue(duplicate.body().contains("has already been taken"));
+        String auth = created.headers().firstValue("Authorization").orElseThrow();
+        var updated =
+                request(
+                        "PATCH",
+                        "/auth",
+                        "{\"name\":\"Changed\",\"current_password\":\"wrong\",\"role\":\"admin\"}",
+                        auth);
+        assertEquals(200, updated.statusCode(), updated.body());
+        assertEquals(404, request("DELETE", "/auth", null, null).statusCode());
+        assertEquals(200, request("DELETE", "/auth", null, auth).statusCode());
+        assertEquals(401, request("GET", "/me", null, auth).statusCode());
+        var invalid = request("POST", "/auth", "{\"email\":\"bad\",\"password\":\"short\"}", null);
+        assertEquals(422, invalid.statusCode(), invalid.body());
+        assertTrue(invalid.body().contains("is not an email"));
+        assertEquals(422, request("POST", "/auth", "{\"role\":\"admin\"}", null).statusCode());
+    }
+
+    @Test
+    void additionalAccountSecretsNeverEnterWireViewsAndInputErrorsUseDtaBodies() throws Exception {
+        for (String column : java.util.List.of("otp_secret", "password_digest", "is_admin"))
+            jdbc.execute("ALTER TABLE users ADD COLUMN " + column + " VARCHAR(40)");
+        try {
+            jdbc.update(
+                    "UPDATE users SET otp_secret = ?, password_digest = ?, is_admin = ?",
+                    "secret-otp",
+                    "secret-password",
+                    "true");
+            var login =
+                    request(
+                            "POST",
+                            "/auth/sign_in",
+                            "{\"email\":\"demo@example.com\",\"password\":\"test-password\"}",
+                            null);
+            assertEquals(200, login.statusCode(), login.body());
+            String auth = login.headers().firstValue("Authorization").orElseThrow();
+            for (var response :
+                    java.util.List.of(login, request("GET", "/auth/validate_token", null, auth))) {
+                for (String forbidden :
+                        java.util.List.of(
+                                "otp_secret",
+                                "password_digest",
+                                "is_admin",
+                                "secret-otp",
+                                "secret-password"))
+                    assertFalse(response.body().contains(forbidden), response.body());
+                assertTrue(response.body().contains("role"));
+            }
+            var malformed = request("POST", "/auth/sign_in", "{", null);
+            assertEquals(400, malformed.statusCode(), malformed.body());
+            assertTrue(malformed.body().contains("\"success\":false"));
+            var missing = request("POST", "/auth/sign_in", "{}", null);
+            assertEquals(401, missing.statusCode(), missing.body());
+            var unsupported = request("POST", "/auth/sign_in", null, null);
+            assertEquals(415, unsupported.statusCode(), unsupported.body());
+            assertTrue(unsupported.body().contains("\"success\":false"));
+        } finally {
+            for (String column : java.util.List.of("otp_secret", "password_digest", "is_admin"))
+                jdbc.execute("ALTER TABLE users DROP COLUMN " + column);
         }
-        assertEquals(403, request("DELETE", "/auth/sessions", null, null).statusCode());
-        var invalid = request("GET", "/me", null, "Bearer og1_" + "A".repeat(43));
-        assertEquals(401, invalid.statusCode());
-        var issued = sessions.issue(new Subject("users", "", "demo@example.com"), "phone");
-        assertEquals(401, request("GET", "/me?access_token=" + issued.token(), null, null).statusCode());
-        var duplicate = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/me"))
-                .header("Authorization", "Bearer " + issued.token()).header("Authorization", "Bearer " + issued.token()).GET().build();
-        assertEquals(400, HTTP.send(duplicate, HttpResponse.BodyHandlers.ofString()).statusCode());
-        assertEquals(1, sessions.list(new Subject("users", "", "demo@example.com")).size());
     }
 
-    @Test void signOutAndRevokeAllUseOnlyTheAuthenticatedOwner() throws Exception {
-        var owner = new Subject("users", "", "demo@example.com");
-        var first = sessions.issue(owner, "one");
-        var second = sessions.issue(owner, "two");
-        assertEquals(204, request("DELETE", "/auth/sign-out", null, "Bearer " + first.token()).statusCode());
-        assertTrue(sessions.authenticate(first.token()).isEmpty());
-        assertTrue(sessions.authenticate(second.token()).isPresent());
-        assertEquals(204, request("DELETE", "/auth/sessions", null, "Bearer " + second.token()).statusCode());
-        assertTrue(sessions.list(owner).isEmpty());
-    }
-
-    private HttpResponse<String> login(String password) throws Exception { return login("demo@example.com", password); }
-
-    private HttpResponse<String> login(String username, String password) throws Exception {
-        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/auth/sign-in"))
-                .timeout(Duration.ofSeconds(10)).header("Content-Type", "application/json")
-                .header("X-Requested-With", "Ogiri")
-                .POST(HttpRequest.BodyPublishers.ofString("{\"username\":\"" + username + "\",\"password\":\"" + password + "\",\"client\":\"browser\"}")).build();
-        return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
-    }
-    private HttpResponse<String> request(String method, String path, String contentType, String bearer) throws Exception {
-        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).timeout(Duration.ofSeconds(10));
-        if (contentType != null) request.header("Content-Type", contentType);
-        if (bearer != null) request.header("Authorization", bearer);
-        request.method(method, contentType == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString("{}"));
-        return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> request(String method, String path, String body, String auth)
+            throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
+        if (auth != null) {
+            request.header("Authorization", auth);
+        }
+        if (body != null) {
+            request.header("Content-Type", "application/json");
+        }
+        return http.send(
+                request.method(
+                                method,
+                                body == null
+                                        ? HttpRequest.BodyPublishers.noBody()
+                                        : HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 }
