@@ -2,6 +2,8 @@
 package com.quantipixels.ogiri.security;
 
 import com.quantipixels.ogiri.security.internal.DtaAuthenticationConverter;
+import com.quantipixels.ogiri.security.internal.OgiriRealmAuthenticationFilter;
+import com.quantipixels.ogiri.security.internal.OgiriSecurityContextRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
@@ -9,7 +11,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
-import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
@@ -17,14 +18,24 @@ import org.springframework.web.cors.CorsConfiguration;
 public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigurer, HttpSecurity> {
     public static final List<String> AUTH_HEADERS =
             List.of("access-token", "client", "uid", "expiry", "token-type", "Authorization");
-    private final OgiriRuntime runtime;
+    private final OgiriRealms realms;
+    private final OgiriSecurityContextRepository repository;
 
     private OgiriConfigurer(OgiriRuntime runtime) {
-        this.runtime = runtime;
+        this(new OgiriRealms(runtime, List.of()));
+    }
+
+    private OgiriConfigurer(OgiriRealms realms) {
+        this.realms = realms;
+        repository = new OgiriSecurityContextRepository(realms);
     }
 
     public static OgiriConfigurer ogiri(OgiriRuntime runtime) {
         return new OgiriConfigurer(runtime);
+    }
+
+    public static OgiriConfigurer ogiri(OgiriRealms realms) {
+        return new OgiriConfigurer(realms);
     }
 
     public static void exposeHeaders(CorsConfiguration cors) {
@@ -48,10 +59,7 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
         http.sessionManagement(
                         config -> config.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(AbstractHttpConfigurer::disable)
-                .securityContext(
-                        config ->
-                                config.securityContextRepository(
-                                        new RequestAttributeSecurityContextRepository()))
+                .securityContext(config -> config.securityContextRepository(repository))
                 .csrf(
                         csrf ->
                                 csrf.csrfTokenRepository(
@@ -66,14 +74,17 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
                                                         DtaErrors.unauthorized(
                                                                 request,
                                                                 response,
-                                                                runtime.settings().basePath()))
+                                                                realms.resolve(request)
+                                                                        .settings()
+                                                                        .basePath()))
                                         .accessDeniedHandler(
                                                 (request, response, failure) ->
                                                         DtaErrors.forbidden(response)))
-                .headers(config -> config.addHeaderWriter(new DtaHeaderWriter(runtime.settings())));
+                .headers(config -> config.addHeaderWriter(new DtaHeaderWriter(realms)));
     }
 
     private boolean cookieCsrfRequired(HttpServletRequest request) {
+        var runtime = realms.resolve(request);
         if (!runtime.settings().cookieEnabled()
                 || DtaAuthenticationConverter.hasHeaders(request)
                 || publicWorkflow(request, runtime.settings().basePath())
@@ -95,7 +106,7 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
     @Override
     public void configure(HttpSecurity http) {
         http.addFilterBefore(
-                new OgiriAuthenticationFilter(runtime, runtime.authenticationManagers()),
+                new OgiriRealmAuthenticationFilter(realms, repository),
                 AnonymousAuthenticationFilter.class);
     }
 

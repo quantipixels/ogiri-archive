@@ -14,7 +14,7 @@ All three follow the [shared protocol](contracts/PROTOCOL.md) and [HTTP conforma
 
 This is a new, unpublished prototype API and schema. Earlier v3/v4 credentials and database layouts are incompatible; use the application-owned migration and require existing users to sign in again.
 
-The Spring prototype currently implements sign-in, sign-out, validation, devices, registration, account updates and deletion. Configuration requiring unfinished rotation, confirmation, lockout or scheduled cleanup fails startup explicitly. See the [Spring architecture](docs/architecture/spring.md).
+The Spring prototype implements sign-in, sign-out, validation, devices, registration, password recovery, confirmation, lockout, rotation, account updates and deletion, and multiple account realms. Enabling unfinished cookie mode or scheduled cleanup fails startup explicitly. See the [Spring architecture](docs/architecture/spring.md).
 
 ## Adopt the Spring library
 
@@ -81,10 +81,11 @@ Without an application SecurityFilterChain, the starter supplies a stateless cha
 
 ```java
 @Bean
-SecurityFilterChain security(HttpSecurity http, OgiriRuntime runtime) throws Exception {
-    http.with(OgiriConfigurer.ogiri(runtime), configurer -> {});
+SecurityFilterChain security(HttpSecurity http, OgiriRealms realms) throws Exception {
+    http.with(OgiriConfigurer.ogiri(realms), configurer -> {});
     return http.authorizeHttpRequests(routes -> routes
-        .requestMatchers(request -> OgiriConfigurer.endpoint(request, runtime.settings().basePath())).permitAll()
+        .requestMatchers(request -> realms.endpointsEnabled(request)
+            && OgiriConfigurer.publicWorkflow(request, realms.resolve(request).settings().basePath())).permitAll()
         .anyRequest().authenticated()).build();
 }
 ```
@@ -97,4 +98,16 @@ See the [independent sample](examples/spring-app/README.md) for build, startup a
 
 ### Spring public API
 
-Adopters use AccountStore, OgiriAccount, OgiriAuthorities, OgiriPasswords/DevisePasswordEncoder, OgiriMailer, the independent JdbcSessions interface and subject/session records, OgiriRuntime and OgiriConfigurer. Atomic JDBC workflow operations, token helpers, MVC endpoints and credential conversion are under internal packages. Configure `ogiri.public-base-url` (or `spring.application.url`) and JavaMailSender or an OgiriMailer bean for recovery. `ogiri.bcrypt-cost` defaults to 12 and also determines the unknown-account dummy cost.
+Adopters use AccountStore, OgiriAccount, OgiriAuthorities, OgiriPasswords/DevisePasswordEncoder, OgiriMailer, the independent JdbcSessions interface and subject/session records, OgiriRuntime, OgiriRealms and OgiriConfigurer. Atomic JDBC workflow operations, token helpers, MVC endpoints and credential conversion are under internal packages. Configure `ogiri.public-base-url` (or `spring.application.url`) and JavaMailSender or an OgiriMailer bean for recovery. `ogiri.bcrypt-cost` defaults to 12 and also determines the unknown-account dummy cost.
+
+### Spring account realms
+
+Root `ogiri.*` configures the default users realm. Additional mounts inherit every root setting and override only named properties:
+
+```properties
+ogiri.realms.admins.base-path=/admin_auth
+ogiri.realms.admins.account.table=admins
+ogiri.realms.admins.max-number-of-devices=3
+```
+
+Apply an application-owned Devise-shaped admins table migration. Users and admins may share an email but never share sessions. Realm names and mounts must be distinct and non-overlapping. For a custom realm store, supply a bean named `adminsOgiriAccountStore` with `@Bean(defaultCandidate=false)` so it does not replace the default store. An application-owned chain uses `OgiriRealms` as above. Request authentication, response credentials and context caches are isolated by the runtime instance and chain. Email-provider uid follows an email edit; other providers keep their issued uid.

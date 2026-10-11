@@ -128,4 +128,49 @@ class OgiriAutoConfigurationTest {
                 .withPropertyValues(property)
                 .run(context -> assertThat(context.getStartupFailure()).hasRootCauseMessage(cause));
     }
+
+    @Test
+    @Tag("database")
+    void overlappingRealmMountsFailBeforeServingRequests() {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues(
+                        "ogiri.realms.admins.base-path=/auth/admins",
+                        "ogiri.realms.admins.account.table=admins")
+                .run(
+                        context ->
+                                assertThat(context.getStartupFailure())
+                                        .hasRootCauseMessage(
+                                                "Ogiri realm names and mounts must be distinct and non-overlapping"));
+    }
+
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    static class RealmStoreConfiguration {
+        @org.springframework.context.annotation.Bean(defaultCandidate = false)
+        com.quantipixels.ogiri.account.AccountStore adminsOgiriAccountStore(
+                AuthTransactions transactions) {
+            return new com.quantipixels.ogiri.account.JdbcDeviseAccountStore(
+                    transactions, "admins", columns -> java.util.List.of());
+        }
+    }
+
+    @Test
+    @Tag("database")
+    void realmStoreDoesNotReplaceTheRootStore() {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withUserConfiguration(RealmStoreConfiguration.class)
+                .withPropertyValues(
+                        "ogiri.realms.admins.base-path=/admin_auth",
+                        "ogiri.realms.admins.account.table=admins")
+                .run(
+                        context -> {
+                            assertThat(context).hasNotFailed();
+                            var realms =
+                                    context.getBean(
+                                            com.quantipixels.ogiri.security.OgiriRealms.class);
+                            assertThat(realms.additional().get(0).accounts())
+                                    .isSameAs(context.getBean("adminsOgiriAccountStore"));
+                            assertThat(realms.defaultRealm().accounts())
+                                    .isNotSameAs(realms.additional().get(0).accounts());
+                        });
+    }
 }

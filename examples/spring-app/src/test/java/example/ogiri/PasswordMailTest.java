@@ -81,7 +81,7 @@ class PasswordMailTest {
                     outside.queryForObject(
                             "SELECT "
                                     + column
-                                    + " FROM users WHERE (email = ? OR unconfirmed_email = ?) AND provider = 'email'",
+                                    + " FROM users WHERE (email = ? OR unconfirmed_email = ?)",
                             String.class,
                             recipient,
                             recipient);

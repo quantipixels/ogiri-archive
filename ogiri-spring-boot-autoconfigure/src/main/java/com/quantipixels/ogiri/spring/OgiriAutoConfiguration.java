@@ -46,18 +46,23 @@ import org.springframework.transaction.PlatformTransactionManager;
         havingValue = "true",
         matchIfMissing = true)
 @EnableConfigurationProperties(OgiriProperties.class)
+@org.springframework.context.annotation.Import(OgiriRealmConfiguration.class)
 @EnableWebSecurity
 @org.springframework.transaction.annotation.EnableTransactionManagement
 public final class OgiriAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     OgiriSettings ogiriSettings(OgiriProperties properties) {
+        validateFeatures(properties);
+        return properties.settings();
+    }
+
+    static void validateFeatures(OgiriProperties properties) {
         var settings = properties.settings();
         if (settings.cookieEnabled())
             throw new IllegalStateException(
                     "Ogiri cookie login CSRF is not implemented in this checkpoint");
         rejectUnimplementedCleanup(properties);
-        return settings;
     }
 
     private static void rejectUnimplementedCleanup(OgiriProperties properties) {
@@ -165,6 +170,11 @@ public final class OgiriAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     com.quantipixels.ogiri.internal.PublicLinks ogiriLinks(
+            OgiriProperties properties, org.springframework.core.env.Environment environment) {
+        return links(properties, environment);
+    }
+
+    static com.quantipixels.ogiri.internal.PublicLinks links(
             OgiriProperties properties, org.springframework.core.env.Environment environment) {
         String url =
                 properties.publicBaseUrl().isBlank()
@@ -292,23 +302,30 @@ public final class OgiriAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(SecurityFilterChain.class)
     SecurityFilterChain ogiriSecurityFilterChain(
-            HttpSecurity http, OgiriRuntime runtime, OgiriProperties properties) throws Exception {
-        http.with(OgiriConfigurer.ogiri(runtime), config -> {});
+            HttpSecurity http,
+            OgiriRuntime runtime,
+            com.quantipixels.ogiri.security.OgiriRealms realms,
+            OgiriProperties properties)
+            throws Exception {
+        http.with(OgiriConfigurer.ogiri(realms), config -> {});
         return http.authorizeHttpRequests(
                         routes ->
                                 routes.dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR)
                                         .permitAll()
                                         .requestMatchers(
                                                 request ->
-                                                        properties.endpoints().enabled()
+                                                        realms.endpointsEnabled(request)
                                                                 && (OgiriConfigurer.publicWorkflow(
                                                                                 request,
-                                                                                runtime.settings()
+                                                                                realms.resolve(
+                                                                                                request)
+                                                                                        .settings()
                                                                                         .basePath())
                                                                         || OgiriConfigurer
                                                                                 .tokenResetWorkflow(
                                                                                         request,
-                                                                                        runtime
+                                                                                        realms.resolve(
+                                                                                                        request)
                                                                                                 .settings())))
                                         .permitAll()
                                         .anyRequest()

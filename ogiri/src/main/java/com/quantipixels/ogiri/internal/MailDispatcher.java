@@ -53,7 +53,7 @@ public final class MailDispatcher {
                 case UNLOCK -> mailer.unlock(intent.recipient(), intent.link());
             }
             intent.receipt().delivered = true;
-        } catch (RuntimeException failure) {
+        } catch (Exception failure) {
             org.apache.commons.logging.LogFactory.getLog(MailDispatcher.class)
                     .warn("Ogiri mail delivery failed (" + intent.kind() + ")");
         }

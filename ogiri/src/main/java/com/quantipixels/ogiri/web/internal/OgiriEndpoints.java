@@ -123,7 +123,7 @@ public final class OgiriEndpoints {
                         identity == null ? null : identity.session().id());
         var account = changed.account();
         if (identity != null && !changed.credentialRetained())
-            request.removeAttribute(ResponseCredentials.ATTRIBUTE);
+            request.removeAttribute(runtime.responseCredentialsAttribute());
         return Map.of(
                 "success",
                 true,
@@ -166,7 +166,7 @@ public final class OgiriEndpoints {
             @RequestBody Map<String, Object> values, HttpServletRequest request) {
         var result = registration.register(values);
         if (result.issued() != null)
-            ResponseCredentials.issued(request, result.issued(), result.account().uid());
+            ResponseCredentials.issued(request, runtime, result.issued(), result.account().uid());
         return Map.of("status", "success", "data", result.account().view(false));
     }
 
@@ -193,11 +193,13 @@ public final class OgiriEndpoints {
         var identity = accountIdentity(authentication, "User not found.");
         var changed = registration.update(identity.getPrincipal(), values, identity.session().id());
         var account = changed.account();
-        var credentials = (ResponseCredentials) request.getAttribute(ResponseCredentials.ATTRIBUTE);
-        if (!changed.credentialRetained()) request.removeAttribute(ResponseCredentials.ATTRIBUTE);
+        var credentials =
+                (ResponseCredentials) request.getAttribute(runtime.responseCredentialsAttribute());
+        if (!changed.credentialRetained())
+            request.removeAttribute(runtime.responseCredentialsAttribute());
         else if (credentials != null)
             request.setAttribute(
-                    ResponseCredentials.ATTRIBUTE,
+                    runtime.responseCredentialsAttribute(),
                     new ResponseCredentials(
                             credentials.token(),
                             credentials.client(),
@@ -269,7 +271,7 @@ public final class OgiriEndpoints {
                                 login == null ? null : login.email(),
                                 login == null ? null : login.password());
         if (result.issued() != null)
-            ResponseCredentials.issued(request, result.issued(), result.account().uid());
+            ResponseCredentials.issued(request, runtime, result.issued(), result.account().uid());
         return Map.of("data", result.account().view(true));
     }
 
@@ -360,7 +362,7 @@ public final class OgiriEndpoints {
     }
 
     private void clear(HttpServletRequest request, HttpServletResponse response) {
-        request.removeAttribute(ResponseCredentials.ATTRIBUTE);
+        request.removeAttribute(runtime.responseCredentialsAttribute());
         if (runtime.settings().cookieEnabled()) {
             response.addHeader(
                     "Set-Cookie", new DtaHeaderWriter(runtime.settings()).cookie("", 0).toString());

@@ -13,18 +13,32 @@ import tools.jackson.databind.json.JsonMapper;
 /** Executes on response commitment without database access. */
 public final class DtaHeaderWriter implements HeaderWriter {
     private final OgiriSettings settings;
+    private final String credentialsAttribute;
+    private final OgiriRealms realms;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public DtaHeaderWriter(OgiriSettings settings) {
         this.settings = settings;
+        this.realms = null;
+        this.credentialsAttribute = ResponseCredentials.ATTRIBUTE;
+    }
+
+    public DtaHeaderWriter(OgiriRealms realms) {
+        this.realms = realms;
+        this.settings = realms.defaultRealm().settings();
+        this.credentialsAttribute = realms.defaultRealm().responseCredentialsAttribute();
     }
 
     @Override
     public void writeHeaders(HttpServletRequest request, HttpServletResponse response) {
-        if (!(request.getAttribute(ResponseCredentials.ATTRIBUTE)
+        if (!(request.getAttribute(
+                        realms == null
+                                ? credentialsAttribute
+                                : realms.resolve(request).responseCredentialsAttribute())
                 instanceof ResponseCredentials credentials)) {
             return;
         }
+        var settings = realms == null ? this.settings : realms.resolve(request).settings();
         var headers = credentials.headers();
         headers.forEach(response::setHeader);
         response.setHeader("Cache-Control", "no-store");
@@ -32,7 +46,8 @@ public final class DtaHeaderWriter implements HeaderWriter {
         if (settings.cookieEnabled()) {
             response.addHeader(
                     "Set-Cookie",
-                    cookie(java.net.URLEncoder.encode(encoded, StandardCharsets.UTF_8), -1)
+                    new DtaHeaderWriter(settings)
+                            .cookie(java.net.URLEncoder.encode(encoded, StandardCharsets.UTF_8), -1)
                             .toString());
         } else {
             response.setHeader(

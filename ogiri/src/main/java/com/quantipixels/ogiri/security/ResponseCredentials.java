@@ -14,8 +14,10 @@ public record ResponseCredentials(
 
     public static final String ATTRIBUTE = ResponseCredentials.class.getName();
 
-    public static void issued(HttpServletRequest request, IssuedSession issued, String uid) {
-        request.setAttribute(ATTRIBUTE, of(issued.session(), issued.token(), uid));
+    public static void issued(
+            HttpServletRequest request, OgiriRuntime runtime, IssuedSession issued, String uid) {
+        request.setAttribute(
+                runtime.responseCredentialsAttribute(), of(issued.session(), issued.token(), uid));
     }
 
     public static ResponseCredentials of(Session session, String token, String uid) {

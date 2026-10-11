@@ -147,4 +147,85 @@ class DtaAuthenticationTest {
             SecurityContextHolder.clearContext();
         }
     }
+
+    @Test
+    void sameRealmInstancesAndChainsNeverShareRequestStateOrFilterMarkers() throws Exception {
+        var otherAccounts =
+                new JdbcDeviseAccountStore(runtime.transactions(), "admins", columns -> List.of());
+        var otherSignIn =
+                new SignInService(
+                        otherAccounts,
+                        runtime.transactions(),
+                        runtime.sessions(),
+                        runtime.settings(),
+                        new DevisePasswordEncoder(),
+                        null);
+        var other =
+                new OgiriRuntime(
+                        runtime.settings(),
+                        runtime.transactions(),
+                        runtime.sessions(),
+                        otherAccounts,
+                        otherSignIn);
+        var firstRealms = new com.quantipixels.ogiri.security.OgiriRealms(runtime, List.of());
+        var secondRealms = new com.quantipixels.ogiri.security.OgiriRealms(other, List.of());
+        var first =
+                new com.quantipixels.ogiri.security.internal.OgiriSecurityContextRepository(
+                        firstRealms);
+        var second =
+                new com.quantipixels.ogiri.security.internal.OgiriSecurityContextRepository(
+                        secondRealms);
+        var anotherChain =
+                new com.quantipixels.ogiri.security.internal.OgiriSecurityContextRepository(
+                        firstRealms);
+        var request = new MockHttpServletRequest("GET", "/me");
+        request.setServletPath("/me");
+        request.addHeader("uid", login.account().uid());
+        request.addHeader("client", login.issued().session().client());
+        request.addHeader("access-token", login.issued().token());
+        var response = new MockHttpServletResponse();
+        var filter =
+                new com.quantipixels.ogiri.security.internal.OgiriRealmAuthenticationFilter(
+                        firstRealms, first);
+        var nested =
+                new com.quantipixels.ogiri.security.internal.OgiriRealmAuthenticationFilter(
+                        secondRealms, second);
+        SecurityContextHolder.clearContext();
+        try {
+            filter.doFilter(
+                    request,
+                    response,
+                    (req, res) -> {
+                        org.junit.jupiter.api.Assertions.assertTrue(first.containsContext(request));
+                        org.junit.jupiter.api.Assertions.assertFalse(
+                                second.containsContext(request));
+                        org.junit.jupiter.api.Assertions.assertFalse(
+                                anotherChain.containsContext(request));
+                        org.junit.jupiter.api.Assertions.assertNotNull(
+                                request.getAttribute(runtime.responseCredentialsAttribute()));
+                        org.junit.jupiter.api.Assertions.assertNull(
+                                request.getAttribute(other.responseCredentialsAttribute()));
+                        nested.doFilter(
+                                req,
+                                res,
+                                (r, s) -> {
+                                    throw new AssertionError(
+                                            "The second instance must reject the earlier authenticated identity");
+                                });
+                        for (String header : List.of("uid", "client", "access-token"))
+                            request.removeHeader(header);
+                        nested.doFilter(
+                                req,
+                                res,
+                                (r, s) ->
+                                        org.junit.jupiter.api.Assertions.assertNull(
+                                                SecurityContextHolder.getContext()
+                                                        .getAuthentication(),
+                                                "A different instance without credentials must not inherit the first principal"));
+                    });
+            assertEquals(401, response.getStatus());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
 }

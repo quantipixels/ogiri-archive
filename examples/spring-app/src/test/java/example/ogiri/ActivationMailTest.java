@@ -143,6 +143,62 @@ class ActivationMailTest {
                         null);
         assertEquals(302, confirmed.statusCode(), confirmed.body());
         assertEquals(200, login(next, "test-password").statusCode());
+        assertEquals(
+                next,
+                jdbc.queryForObject("SELECT uid FROM users WHERE email = ?", String.class, next));
+    }
+
+    @Test
+    void reconfirmationKeepsTheProviderUidEvenWhenEmailChanges() throws Exception {
+        String email = email();
+        assertEquals(200, signup(email).statusCode());
+        assertEquals(302, follow(mail.link).statusCode());
+        String auth =
+                login(email, "test-password").headers().firstValue("Authorization").orElseThrow();
+        String uid = "github-" + java.util.UUID.randomUUID();
+        jdbc.update("UPDATE users SET provider = 'github', uid = ? WHERE email = ?", uid, email);
+        var credentials =
+                JsonMapper.builder()
+                        .build()
+                        .readTree(java.util.Base64.getDecoder().decode(auth.substring(7)));
+        auth =
+                "Bearer "
+                        + java.util.Base64.getEncoder()
+                                .encodeToString(
+                                        JsonMapper.builder()
+                                                .build()
+                                                .writeValueAsBytes(
+                                                        Map.of(
+                                                                "uid",
+                                                                uid,
+                                                                "client",
+                                                                credentials.get("client").asText(),
+                                                                "access-token",
+                                                                credentials
+                                                                        .get("access-token")
+                                                                        .asText())));
+        String next = "next-" + email;
+        assertEquals(
+                200,
+                request(
+                                "PATCH",
+                                "",
+                                Map.of(
+                                        "email",
+                                        next,
+                                        "confirm_success_url",
+                                        "https://client.example.test/done"),
+                                auth)
+                        .statusCode());
+        assertEquals(302, follow(mail.link).statusCode());
+        assertEquals(
+                uid,
+                jdbc.queryForObject("SELECT uid FROM users WHERE email = ?", String.class, next));
+        assertEquals(
+                "github",
+                jdbc.queryForObject(
+                        "SELECT provider FROM users WHERE email = ?", String.class, next));
+        assertEquals(200, request("GET", "/validate_token", null, auth).statusCode());
     }
 
     private String email() {

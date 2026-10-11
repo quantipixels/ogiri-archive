@@ -116,16 +116,7 @@ public final class RegistrationService {
                                             .orElseThrow(() -> failure(404, "User not found."));
                             validate(input, current, false);
                             var changes = new LinkedHashMap<>(input.attributes());
-                            boolean reconfirm =
-                                    input.email() != null
-                                            && !input.email().equals(current.email())
-                                            && settings.confirmable()
-                                            && settings.reconfirmable();
-                            if (reconfirm) changes.put("unconfirmed_email", input.email());
-                            else if (input.email() != null) {
-                                changes.put("email", input.email());
-                                changes.put("uid", input.email());
-                            }
+                            boolean reconfirm = changeEmail(input, current, changes);
                             if (hash != null) {
                                 changes.put("encrypted_password", hash);
                                 changes.put("allow_password_change", false);
@@ -157,6 +148,21 @@ public final class RegistrationService {
                         });
         result.delivery().verify(settings.paranoid());
         return result.change();
+    }
+
+    private boolean changeEmail(
+            AccountInput input, OgiriAccount current, Map<String, Object> changes) {
+        if (input.email() == null) return false;
+        boolean reconfirm =
+                !input.email().equals(current.email())
+                        && settings.confirmable()
+                        && settings.reconfirmable();
+        if (reconfirm) changes.put("unconfirmed_email", input.email());
+        else {
+            changes.put("email", input.email());
+            if (current.text("provider").equals("email")) changes.put("uid", input.email());
+        }
+        return reconfirm;
     }
 
     private record Mutation(AccountChange change, ActivationService.Delivery delivery) {}

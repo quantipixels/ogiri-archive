@@ -24,8 +24,22 @@ public final class ClientRotation {
         }
     }
 
-    private record Snapshot(
-            Session session, byte[] current, byte[] previous, byte[] last, long rotated) {}
+    private static final class Snapshot {
+        private final Session session;
+        private final byte[] current;
+        private final byte[] previous;
+        private final byte[] last;
+        private final long rotated;
+
+        private Snapshot(
+                Session session, byte[] current, byte[] previous, byte[] last, long rotated) {
+            this.session = session;
+            this.current = current;
+            this.previous = previous;
+            this.last = last;
+            this.rotated = rotated;
+        }
+    }
 
     public Optional<Result> authenticateLocked(
             Subject subject, String client, String token, Duration buffer, Duration lifespan) {
@@ -56,21 +70,21 @@ public final class ClientRotation {
         if (rows.isEmpty()) return Optional.empty();
         var row = rows.get(0);
         byte[] digest = Tokens.digest(token);
-        boolean batch = now < Math.addExact(row.rotated(), buffer.toMillis());
-        boolean current = same(row.current(), digest);
-        boolean previous = same(row.previous(), digest);
-        boolean last = same(row.last(), digest);
+        boolean batch = now < Math.addExact(row.rotated, buffer.toMillis());
+        boolean current = same(row.current, digest);
+        boolean previous = same(row.previous, digest);
+        boolean last = same(row.last, digest);
         if (digest == null
-                || row.session().expiresAt().toEpochMilli() <= now
-                || !(current | ((previous | last) & batch))) return Optional.empty();
+                || row.session.expiresAt().toEpochMilli() <= now
+                || !(current || ((previous || last) && batch))) return Optional.empty();
         if (batch) {
             transactions
                     .jdbc()
                     .update(
                             "UPDATE ogiri_sessions SET rotated_at = ? WHERE id = ?",
                             now,
-                            row.session().id().toString());
-            return Optional.of(new Result(row.session(), token, true));
+                            row.session.id().toString());
+            return Optional.of(new Result(row.session, token, true));
         }
         String next = Tokens.generate();
         long expiry = Math.addExact(now, lifespan.toMillis());
@@ -81,13 +95,13 @@ public final class ClientRotation {
                         Tokens.digest(next),
                         now,
                         expiry,
-                        row.session().id().toString());
+                        row.session.id().toString());
         var session =
                 new Session(
-                        row.session().id(),
+                        row.session.id(),
                         subject,
                         client,
-                        row.session().createdAt(),
+                        row.session.createdAt(),
                         Instant.ofEpochMilli(expiry));
         return Optional.of(new Result(session, next, false));
     }
