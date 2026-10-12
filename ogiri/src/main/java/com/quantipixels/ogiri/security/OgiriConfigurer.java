@@ -2,8 +2,8 @@
 package com.quantipixels.ogiri.security;
 
 import com.quantipixels.ogiri.security.internal.DtaAuthenticationConverter;
-import com.quantipixels.ogiri.security.internal.OgiriCsrfRequestHandler;
-import com.quantipixels.ogiri.security.internal.OgiriCsrfTokenRepository;
+import com.quantipixels.ogiri.security.internal.OgiriCsrfFilter;
+import com.quantipixels.ogiri.security.internal.OgiriExceptionTranslationFilter;
 import com.quantipixels.ogiri.security.internal.OgiriRealmAuthenticationFilter;
 import com.quantipixels.ogiri.security.internal.OgiriSecurityContextRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,9 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
-import org.springframework.security.web.csrf.CsrfException;
+import org.springframework.security.web.access.ExceptionTranslationFilter;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.web.cors.CorsConfiguration;
 
 public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigurer, HttpSecurity> {
@@ -56,42 +55,14 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
             throw new IllegalStateException(
                     "OgiriConfigurer.ogiri(runtime) cannot be used with additional realms; use OgiriConfigurer.ogiri(realms)");
         }
-        if (context != null
-                && context.getBeanNamesForType(
-                                        org.springframework.web.cors.CorsConfigurationSource.class)
-                                .length
-                        > 0) {
-            http.cors(org.springframework.security.config.Customizer.withDefaults());
-        }
-        http.sessionManagement(
-                        config -> config.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .requestCache(AbstractHttpConfigurer::disable)
-                .securityContext(config -> config.securityContextRepository(repository))
-                .csrf(
-                        csrf ->
-                                csrf.csrfTokenRepository(new OgiriCsrfTokenRepository(realms))
-                                        .csrfTokenRequestHandler(
-                                                new OgiriCsrfRequestHandler(realms))
-                                        .requireCsrfProtectionMatcher(this::cookieCsrfRequired))
-                .exceptionHandling(
-                        config ->
-                                config.authenticationEntryPoint(
-                                                (request, response, failure) ->
-                                                        DtaErrors.unauthorized(
-                                                                request,
-                                                                response,
-                                                                realms.resolve(request)
-                                                                        .settings()
-                                                                        .basePath()))
-                                        .accessDeniedHandler(
-                                                (request, response, failure) -> {
-                                                    if (failure instanceof CsrfException) {
-                                                        DtaErrors.csrf(response);
-                                                    } else {
-                                                        DtaErrors.forbidden(response);
-                                                    }
-                                                }))
-                .headers(config -> config.addHeaderWriter(new DtaHeaderWriter(realms)));
+        http.headers(config -> config.addHeaderWriter(new DtaHeaderWriter(realms)));
+    }
+
+    private boolean ogiriRequest(HttpServletRequest request) {
+        var runtime = realms.resolve(request);
+        return (realms.endpointsEnabled(request)
+                        && endpoint(request, runtime.settings().basePath()))
+                || new DtaAuthenticationConverter(runtime.settings()).convert(request) != null;
     }
 
     private boolean cookieCsrfRequired(HttpServletRequest request) {
@@ -124,8 +95,15 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
     @Override
     public void configure(HttpSecurity http) {
         http.addFilterBefore(
+                new OgiriCsrfFilter(realms, this::ogiriRequest, this::cookieCsrfRequired),
+                CsrfFilter.class);
+        http.addFilterAfter(
+                new OgiriExceptionTranslationFilter(realms, this::ogiriRequest),
+                ExceptionTranslationFilter.class);
+        // Run after host session-management strategies: Ogiri must not trigger a session login.
+        http.addFilterBefore(
                 new OgiriRealmAuthenticationFilter(realms, repository),
-                AnonymousAuthenticationFilter.class);
+                ExceptionTranslationFilter.class);
     }
 
     public static String path(HttpServletRequest request) {
