@@ -111,7 +111,8 @@ public final class OgiriEndpoints {
     public Map<String, Object> changePassword(
             @RequestBody Map<String, Object> values,
             Authentication authentication,
-            HttpServletRequest request) {
+            HttpServletRequest request,
+            HttpServletResponse response) {
         var identity =
                 authentication instanceof OgiriAuthentication current && current.isAuthenticated()
                         ? current
@@ -122,8 +123,9 @@ public final class OgiriEndpoints {
                         values,
                         identity == null ? null : identity.session());
         var account = changed.account();
-        if (identity != null && !changed.credentialRetained())
-            request.removeAttribute(runtime.responseCredentialsAttribute());
+        if (identity != null
+                && runtime.settings().subject(account).equals(identity.session().subject())
+                && !changed.credentialRetained()) clear(request, response);
         return Map.of(
                 "success",
                 true,
@@ -143,8 +145,10 @@ public final class OgiriEndpoints {
     public Map<String, Object> changePasswordForm(
             @RequestParam Map<String, String> values,
             Authentication authentication,
-            HttpServletRequest request) {
-        return changePassword(new java.util.LinkedHashMap<>(values), authentication, request);
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        return changePassword(
+                new java.util.LinkedHashMap<>(values), authentication, request, response);
     }
 
     @RequestMapping(
@@ -189,14 +193,14 @@ public final class OgiriEndpoints {
     public Map<String, Object> update(
             @RequestBody Map<String, Object> values,
             Authentication authentication,
-            HttpServletRequest request) {
+            HttpServletRequest request,
+            HttpServletResponse response) {
         var identity = accountIdentity(authentication, "User not found.");
         var changed = registration.update(identity.getPrincipal(), values, identity.session());
         var account = changed.account();
         var credentials =
                 (ResponseCredentials) request.getAttribute(runtime.responseCredentialsAttribute());
-        if (!changed.credentialRetained())
-            request.removeAttribute(runtime.responseCredentialsAttribute());
+        if (!changed.credentialRetained()) clear(request, response);
         else if (credentials != null)
             request.setAttribute(
                     runtime.responseCredentialsAttribute(),
@@ -219,8 +223,9 @@ public final class OgiriEndpoints {
     public Map<String, Object> updateForm(
             @RequestParam Map<String, String> values,
             Authentication authentication,
-            HttpServletRequest request) {
-        return update(new java.util.LinkedHashMap<>(values), authentication, request);
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        return update(new java.util.LinkedHashMap<>(values), authentication, request, response);
     }
 
     @DeleteMapping({"", "/"})

@@ -246,10 +246,14 @@ class RealmConsumerTest {
                 Map.of("password", "changed-password", "password_confirmation", "changed-password");
         java.util.List<org.junit.jupiter.api.function.Executable> operations =
                 java.util.List.of(
-                        () -> endpoints.update(Map.of("name", "taken-over"), identity, request),
-                        () -> endpoints.updateForm(Map.of("name", "taken-over"), identity, request),
+                        () ->
+                                endpoints.update(
+                                        Map.of("name", "taken-over"), identity, request, response),
+                        () ->
+                                endpoints.updateForm(
+                                        Map.of("name", "taken-over"), identity, request, response),
                         () -> endpoints.destroy(identity, request, response),
-                        () -> endpoints.changePassword(password, identity, request),
+                        () -> endpoints.changePassword(password, identity, request, response),
                         () ->
                                 endpoints.changePasswordForm(
                                         Map.of(
@@ -258,7 +262,8 @@ class RealmConsumerTest {
                                                 "password_confirmation",
                                                 "changed-password"),
                                         identity,
-                                        request),
+                                        request,
+                                        response),
                         () -> endpoints.validate(identity),
                         () -> endpoints.signOut(identity, request, response),
                         () -> endpoints.list(identity),
