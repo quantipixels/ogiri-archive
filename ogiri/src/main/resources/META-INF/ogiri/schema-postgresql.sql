@@ -8,6 +8,7 @@ CREATE TABLE ogiri_sessions (
     realm varchar(63) COLLATE "C" NOT NULL,
     tenant_id varchar(255) COLLATE "C" NOT NULL,
     subject_id varchar(255) COLLATE "C" NOT NULL,
+    account_generation varchar(36) COLLATE "C",
     client varchar(64) COLLATE "C" NOT NULL,
     token_hash bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
     previous_token_hash bytea CHECK (octet_length(previous_token_hash) = 32),

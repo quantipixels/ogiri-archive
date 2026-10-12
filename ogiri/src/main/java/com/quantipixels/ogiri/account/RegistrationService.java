@@ -86,7 +86,9 @@ public final class RegistrationService {
                                 return new Result(
                                         account,
                                         sessions.issueLocked(
-                                                signIn.subject(account), Tokens.client()),
+                                                signIn.subject(account),
+                                                Tokens.client(),
+                                                account.generation()),
                                         null);
                             });
             if (result.receipt() != null) result.receipt().verify(settings.paranoid());
@@ -111,6 +113,7 @@ public final class RegistrationService {
                             var current =
                                     accounts.lock(identity.id())
                                             .orElseThrow(() -> failure(404, "User not found."));
+                            settings.requireCurrentAccount(identity, current);
                             validate(input, current, false);
                             var changes = new LinkedHashMap<>(input.attributes());
                             boolean reconfirm = changeEmail(input, current, changes);
@@ -176,6 +179,7 @@ public final class RegistrationService {
                                                     failure(
                                                             404,
                                                             "Unable to locate account for destruction."));
+                    settings.requireCurrentAccount(identity, locked);
                     sessions.revokeAllLocked(signIn.subject(identity));
                     accounts.delete(locked.id());
                     return null;

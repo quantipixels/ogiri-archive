@@ -67,6 +67,13 @@ public record OgiriSettings(
         }
     }
 
+    /** Recheck under the account lock before a previously authenticated request mutates it. */
+    public void requireCurrentAccount(OgiriAccount identity, OgiriAccount current) {
+        if (!subject(identity).equals(subject(current))
+                || !identity.generation().equals(current.generation()))
+            throw new com.quantipixels.ogiri.DtaFailure(401, "Unauthorized");
+    }
+
     private static boolean validPath(String path) {
         return path.startsWith("/")
                 && path.length() > 1

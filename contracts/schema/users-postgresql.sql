@@ -3,6 +3,7 @@
 -- New projects apply it; databases migrated from Rails already have it (the tokens column is ignored by Ogiri).
 CREATE TABLE users (
     id bigserial PRIMARY KEY,
+    ogiri_generation varchar(36) COLLATE "C" NOT NULL DEFAULT gen_random_uuid()::text,
     provider varchar(255) NOT NULL DEFAULT 'email',
     uid varchar(255) NOT NULL DEFAULT '',
     encrypted_password varchar(255) NOT NULL DEFAULT '',

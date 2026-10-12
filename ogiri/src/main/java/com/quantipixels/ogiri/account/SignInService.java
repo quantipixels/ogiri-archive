@@ -79,14 +79,19 @@ public final class SignInService {
         } catch (DtaFailure inactive) {
             return new Attempt(null, inactive, null);
         }
-        if (!matches || !verified.equals(current.getPassword())) {
+        if (!matches
+                || !verified.equals(current.getPassword())
+                || !candidate.generation().equals(current.generation())) {
             var delivery = settings.lockable() ? activation.failedLocked(current) : null;
             return new Attempt(null, new DtaFailure(401, INVALID), delivery);
         }
         if (settings.lockable() && !current.text("failed_attempts").equals("0"))
             current = activation.clearLockLocked(current);
         return new Attempt(
-                new Result(current, sessions.issueLocked(subject(current), Tokens.client())),
+                new Result(
+                        current,
+                        sessions.issueLocked(
+                                subject(current), Tokens.client(), current.generation())),
                 null,
                 null);
     }

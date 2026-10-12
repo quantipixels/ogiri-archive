@@ -70,6 +70,21 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
 
     /** Participates in the coordinator's transaction after its subject/account locks. */
     public IssuedSession issueLocked(Subject subject, String client) {
+        return issueLocked(subject, client, null);
+    }
+
+    /** Bind a DTA session to a particular account incarnation, under the account lock. */
+    public IssuedSession issueLocked(Subject subject, String client, String generation) {
+        if (generation != null) {
+            jdbc.update(
+                    "DELETE FROM ogiri_sessions WHERE "
+                            + OWNER
+                            + " AND (account_generation IS NULL OR account_generation <> ?)",
+                    subject.realm(),
+                    subject.tenantId(),
+                    subject.subjectId(),
+                    generation);
+        }
         long now = transactions.now();
         jdbc.update(
                 "DELETE FROM ogiri_sessions WHERE " + OWNER + " AND expires_at <= ?",
@@ -102,7 +117,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
         jdbc.update(
                 "INSERT INTO ogiri_sessions ("
                         + COLUMNS
-                        + ", token_hash, rotated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + ", token_hash, rotated_at, account_generation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 session.id().toString(),
                 subject.realm(),
                 subject.tenantId(),
@@ -111,7 +126,8 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
                 now,
                 session.expiresAt().toEpochMilli(),
                 Tokens.digest(token),
-                now);
+                now,
+                generation);
         return new IssuedSession(session, token);
     }
 
@@ -140,6 +156,21 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
                 .stream()
                 .filter(Objects::nonNull)
                 .findFirst();
+    }
+
+    public boolean boundTo(Subject subject, String client, String generation) {
+        return jdbc
+                .queryForList(
+                        "SELECT account_generation FROM ogiri_sessions WHERE "
+                                + OWNER
+                                + " AND client = ?",
+                        String.class,
+                        subject.realm(),
+                        subject.tenantId(),
+                        subject.subjectId(),
+                        client)
+                .stream()
+                .anyMatch(generation::equals);
     }
 
     private String nowSql() {

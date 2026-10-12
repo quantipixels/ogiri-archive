@@ -72,3 +72,9 @@ Additional JDBC realms must resolve to distinct account tables, including the ro
 Ogiri's resolver bean is named and qualified `ogiriAuthenticationManagers`. A host AuthenticationManagerResolver does not replace it; adopters replacing Ogiri's resolver must use that bean name/qualifier. The dependency-only starter is a conventional JAR, and the installed-artifact consumer uses the README dependency verbatim.
 
 Cookie-mode realm limitation: XSRF-TOKEN and X-XSRF-TOKEN are shared names. Use the same cookie path (normally /) for every cookie-enabled realm and distinct auth cookie names. Different realm paths can send multiple XSRF-TOKEN cookies; Spring reads the first and the browser may echo another, causing a 403. Distinct auth cookie paths alone do not isolate CSRF tokens; separate realm CSRF names are not supported.
+
+### Account incarnation binding
+
+DTA accounts provide an immutable `ogiri_generation` (at most 36 characters) that changes whenever an account row is replaced. The default account schemas generate a UUID in the database; custom `AccountStore` adapters must supply the equivalent value in each `OgiriAccount`. Ogiri records and checks it on every DTA session, and removes obsolete generations when issuing a new session. Account deletion through Ogiri revokes sessions in the same transaction. Low-level `JdbcSessions` callers remain responsible for their subject lifecycle.
+
+For existing installations, stop Ogiri writers, apply `contracts/schema/migrations/001-account-generation-{postgresql,mysql}.sql` (adapt `users` for every realm), then deploy and restart. The migration invalidates existing sessions and requires sign-in again. Do not copy generation values into replacement accounts or restore account tables independently of session storage. The value is internal and is not part of the DTA wire projection.

@@ -64,6 +64,18 @@ public final class OgiriAccount implements UserDetails {
         return text("id");
     }
 
+    /**
+     * Stable for this account incarnation; custom stores must supply a fresh value on replacement.
+     */
+    @JsonIgnore
+    public String generation() {
+        String value = text("ogiri_generation");
+        if (value.isBlank() || value.length() > 36)
+            throw new IllegalStateException(
+                    "AccountStore must supply an immutable ogiri_generation (1-36 characters)");
+        return value;
+    }
+
     public String uid() {
         return text("uid");
     }

@@ -3,6 +3,7 @@
 -- New projects apply it; databases migrated from Rails already have it (the tokens column is ignored by Ogiri).
 CREATE TABLE users (
     id bigint AUTO_INCREMENT PRIMARY KEY,
+    ogiri_generation varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL DEFAULT (UUID()),
     provider varchar(255) NOT NULL DEFAULT 'email',
     uid varchar(255) NOT NULL DEFAULT '',
     encrypted_password varchar(255) NOT NULL DEFAULT '',

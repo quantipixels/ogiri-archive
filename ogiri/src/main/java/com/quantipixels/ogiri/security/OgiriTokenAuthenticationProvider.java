@@ -48,6 +48,8 @@ public final class OgiriTokenAuthenticationProvider implements AuthenticationPro
                     if (account.isEmpty()
                             || session.isEmpty()
                             || credentials.client().length() > 64
+                            || !sessions.boundTo(
+                                    subject, client, account.orElseThrow().generation())
                             || !account.orElseThrow().active(settings, now)) {
                         throw new BadCredentialsException("Invalid DTA credentials");
                     }
@@ -70,6 +72,10 @@ public final class OgiriTokenAuthenticationProvider implements AuthenticationPro
                             credentials.client().length() > 64
                                     ? "__invalid_client__"
                                     : credentials.client();
+                    if (account.isEmpty()
+                            || !sessions.boundTo(
+                                    subject, client, account.orElseThrow().generation()))
+                        throw new BadCredentialsException("Invalid DTA credentials");
                     var result =
                             new com.quantipixels.ogiri.internal.ClientRotation(transactions)
                                     .authenticateLocked(
