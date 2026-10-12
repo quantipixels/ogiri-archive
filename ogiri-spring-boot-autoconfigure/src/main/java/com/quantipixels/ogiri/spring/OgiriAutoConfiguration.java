@@ -310,6 +310,10 @@ public final class OgiriAutoConfiguration {
                         org.springframework.security.config.annotation.web.configurers
                                         .AbstractHttpConfigurer
                                 ::disable)
+                // Spring's default CsrfFilter is replaced, not dropped: OgiriConfigurer (below)
+                // installs
+                // OgiriCsrfFilter, which requires a token on every unsafe cookie-authenticated
+                // request.
                 .csrf(
                         org.springframework.security.config.annotation.web.configurers
                                         .AbstractHttpConfigurer
