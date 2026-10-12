@@ -16,7 +16,7 @@ Ogiri targets Spring Boot 4.x, Java 17 or later, Jackson 3, PostgreSQL and MySQL
 ## Sessions
 
 - Defaults: 14-day lifetime, at most 10 sessions (devices) per account; the soonest-expiring other session is evicted when the limit is reached. Both are configurable conveniences, not recommendations for every threat model.
-- Rotation (`change-headers-on-each-request`) is **off by default**. When on, each authenticated request issues a new token; the previous token stays valid for the batch window (5 s by default) so parallel requests are not rejected. With rotation off, a stolen token stays usable until it expires or is revoked.
+- Rotation (`change-headers-on-each-request`) is **off by default**. When on, an out-of-buffer request using the current token rotates it and extends expiry. Current/previous/last token digests support a sliding batch window (5 s by default) for parallel requests; batch requests do not issue another token. With rotation off, a stolen token stays usable until it expires or is revoked.
 - Every request validates against the database; there is no session cache, so a storage outage fails closed (503) rather than accepting a previously seen session.
 - Sign-out ends the current session. Password reset ends other sessions only when `remove-tokens-after-password-reset` is enabled; enable it unless you have a reason not to. An action on another account never clears the caller's own credential.
 - Expired sessions are rejected at validation time. Deleting expired rows is an opt-in scheduled job (bounded batches, `SKIP LOCKED`, safe with several instances); it is housekeeping, not a security control.
@@ -31,12 +31,16 @@ Ogiri targets Spring Boot 4.x, Java 17 or later, Jackson 3, PostgreSQL and MySQL
 
 ## Accounts
 
+Each DTA session is bound to an account generation. `ogiri_generation` must be immutable for the life of an account and change when that account is replaced, even if its id is reused. The default account schemas generate UUIDs. Custom `AccountStore` implementations must supply a nonblank value of at most 36 characters in every persisted `OgiriAccount`. Authentication checks that the session generation matches the current account. Never copy generations into replacement accounts or restore account tables independently of session storage. Low-level `JdbcSessions` callers remain responsible for their subject lifecycle.
+
 - Account status and authorities are loaded on each authenticated request. Re-enabling an account can restore its unrevoked, unexpired sessions.
 - Configured permitted fields can never include password, token, confirmation, lock, tracking, provider or identity columns; such configuration fails at startup.
-- Redirect targets for confirmation, password reset and unlock links must match the configured allow-list.
+- Configure a redirect allow-list for confirmation, password reset and unlock links. A nonempty list restricts targets; the empty default accepts any valid absolute HTTP(S) URL without userinfo.
 - Ogiri cannot atomically change account state it does not own. Bans, deletions and compromise recovery done outside Ogiri must also revoke the account's sessions.
 
 ## SQL, transactions and availability
+
+For an existing pre-generation schema, stop all Ogiri writers and apply `001-account-generation-{postgresql,mysql}.sql`, then `002-credential-lookup-{postgresql,mysql}.sql` from the [migration directory](contracts/schema/migrations/). Adapt the account-table steps for every realm. Migration 001 deletes existing sessions, requiring a new sign-in; migration 002 adds the realm/client lookup index. Follow the MySQL script's ROW or MIXED binary-logging requirement. Deploy the matching library before restarting writers. Fresh schemas already include these changes.
 
 - Apply the packaged schemas through your own migrations. MySQL requires InnoDB and the exact binary identity collation in the schema files. Timestamps use database statement time.
 - Writes run in their own transactions (`REQUIRES_NEW`, `READ_COMMITTED`); reads suspend any outer transaction and must hit the primary, not a lagging replica. An outer transaction therefore needs a second connection.
