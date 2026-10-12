@@ -80,9 +80,6 @@ run = "python scripts/repo-checks.py result"
 description = "Database, packaged schema, standalone consumer and package evidence"
 run = "bash scripts/platform/java.sh ci"
 
-[tasks."codeql:build"]
-run = "bash scripts/platform/java.sh codeql"
-
 [tasks."db:up"]
 description = "Start disposable PostgreSQL and MySQL on localhost"
 run = "docker compose up -d --wait"
