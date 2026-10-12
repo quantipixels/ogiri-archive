@@ -2,8 +2,8 @@
   <modelVersion>4.0.0</modelVersion>
   <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>4.1.1</version><relativePath/></parent>
   <groupId>com.quantipixels.ogiri.examples</groupId><artifactId>spring-app</artifactId><version>0.0.1</version>
-  <properties><java.version>17</java.version><tomcat.version>11.0.26</tomcat.version></properties>
-  <!-- Boot 4.1.1 uses Tomcat 11.0.24; retain Ogiri's security-patched 11.0.26 baseline. -->
+  <properties><java.version>17</java.version><tomcat.version>11.0.26</tomcat.version><jackson-bom.version>3.1.7</jackson-bom.version></properties>
+  <!-- Boot 4.1.1 ships Tomcat 11.0.24 and Jackson 3.1.5, both with known advisories; keep Ogiri's patched 11.0.26 and 3.1.7 baseline. -->
   <dependencyManagement><dependencies>
     <dependency><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-bom</artifactId><version>0.0.1</version><type>pom</type><scope>import</scope></dependency>
   </dependencies></dependencyManagement>
