@@ -1,6 +1,6 @@
-# Ogiri protocol rev-3 HTTP parity suite
+# Ogiri Spring HTTP conformance suite
 
-The suite asserts PROTOCOL rev 3.5 for Ogiri and keeps the pinned Rails 8 + DTA `b02076a` + Devise `05811fb` wire behavior as the reference oracle. **Read [ORACLE.md](ORACLE.md)** for every round-1 disagreement and its rev-3 resolution. Deliberate differences have §13-labelled `ogiri_only` checks (skipped with `--reference`); native Rails expectations have `reference_only` checks (skipped on Ogiri). Adopted DTA behavior stays shared. Open contract questions are explicit skips, never fabricated expectations.
+The suite asserts PROTOCOL rev 3.5 for the Ogiri Spring implementation and keeps the pinned Rails 8 + DTA `b02076a` + Devise `05811fb` wire behavior as the reference oracle. **Read [ORACLE.md](ORACLE.md)** for every round-1 disagreement and its rev-3 resolution. Deliberate differences have §13-labelled `ogiri_only` checks (skipped with `--reference`); native Rails expectations have `reference_only` checks (skipped on Ogiri). Adopted DTA behavior stays shared. Open contract questions are explicit skips, never fabricated expectations.
 
 ## Run the oracle
 
@@ -23,16 +23,16 @@ contracts/conformance/run.sh --profile strict --cross-backend --setting OGIRI_PA
 contracts/conformance/run.sh --profile strict --cross-backend --setting OGIRI_DEFAULT_CONFIRM_SUCCESS_URL=https://client.example.test/confirm --setting OGIRI_DEFAULT_PASSWORD_RESET_URL=https://client.example.test/reset
 ```
 
-## Run another sample
+## Run the Spring sample
 
 Give the runner a **foreground** sample command; it supplies `PORT` and the env interface below, and stops the process group between profiles and on exit. Commands run from the repository root. No shell expansion of user-supplied commands is performed outside the explicitly requested shell command.
 
 ```sh
-contracts/conformance/run.sh --profile all --sample-command 'your sample start command'
+contracts/conformance/run.sh --profile all --sample-command 'mise exec java@temurin-17.0.17+10 -- python3 examples/spring-app/run.py'
 contracts/conformance/run.sh --profile all --sample-command 'first sample start command' --peer-command 'second sample start command'
 ```
 
-The second form is AC2: independently issued clients authenticate in both directions and sign-out revocation propagates across one database. `--cross-backend` alone starts a second Rails reference; cross-language AC2 needs the two library commands. Use `--reference` only for real DTA, never to hide failures in Ogiri.
+The second form is AC2: independently issued clients authenticate in both directions and sign-out revocation propagates across one database. `--cross-backend` alone starts a second Rails reference; two Spring instances use the sample and peer commands. Use `--reference` only for real DTA, never to hide failures in Ogiri.
 
 For samples already running against a **disposable fixture database**:
 

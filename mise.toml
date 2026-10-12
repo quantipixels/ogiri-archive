@@ -1,11 +1,9 @@
-# Platform builders own scripts/platform/<platform>.sh; root tasks only route work.
+# Spring and conformance checks live in scripts/platform/; root tasks route work.
 [tools]
 java = "temurin-17.0.17+10"
 maven = "3.9.16"
 python = "3.13.16"
 uv = "0.13.0"
-elixir = "1.20.3-otp-29"
-erlang = "29.0.5"
 node = "24.21.0"            # LTS; used by the parity suite's JavaScript client
 actionlint = "1.7.12"
 zizmor = "1.30.1"
@@ -16,13 +14,11 @@ shfmt = "3.14.1"
 lefthook = "2.2.1"
 
 [tasks.check]
-description = "Fast repository and platform gates (target: under 120 seconds)"
-# Sequential: platform tests may use the same disposable database.
+description = "Fast repository and Spring gates (target: under 120 seconds)"
+# Sequential: Spring tests may use the same disposable database.
 run = [
   "mise run check:repo",
   "mise run check:java",
-  "mise run check:python",
-  "mise run check:elixir",
   "echo 'check: PASS'",
 ]
 
@@ -31,8 +27,6 @@ description = "Repository, database, consumer, release, SBOM and parity checks"
 run = [
   "mise run check:repo",
   "mise run check:java:full",
-  "mise run check:python:full",
-  "mise run check:elixir:full",
   "mise run check:parity",
   "echo 'check:full: PASS (see explicit skips above)'",
 ]
@@ -42,7 +36,7 @@ description = "Workflow, secret, dependency and shell analysis"
 run = "python scripts/repo-checks.py check"
 
 [tasks."check:staged"]
-description = "Secrets, whitespace, workflows, shell and platform formatting from the index"
+description = "Secrets, whitespace, workflows, shell and Java formatting from the index"
 run = "python scripts/repo-checks.py staged"
 
 [tasks."check:java"]
@@ -60,29 +54,16 @@ run = "bash scripts/platform/java.sh release"
 [tasks."check:java:benchmark"]
 run = "bash scripts/platform/java.sh benchmark"
 
-[tasks."check:python"]
-run = "bash scripts/platform/python.sh check"
-
-[tasks."check:python:full"]
-run = "bash scripts/platform/python.sh full"
-
-[tasks."check:elixir"]
-run = "bash scripts/platform/elixir.sh check"
-
-[tasks."check:elixir:full"]
-run = "bash scripts/platform/elixir.sh full"
 
 [tasks."check:parity"]
 run = "bash scripts/platform/parity.sh full"
 
 [tasks.fix]
-description = "Format mise/shell configuration and apply platform formatter fixes"
+description = "Format mise/shell configuration and apply Java formatter fixes"
 run = [
   "mise fmt",
   "python scripts/repo-checks.py fix",
   "bash scripts/platform/java.sh fix",
-  "bash scripts/platform/python.sh fix",
-  "bash scripts/platform/elixir.sh fix",
 ]
 
 [tasks.hooks]

@@ -29,8 +29,6 @@ jobs:
       GATE_FORCE_FULL: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.action == 'ready_for_review' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     outputs:
       java: ${{ steps.paths.outputs.java }}
-      python: ${{ steps.paths.outputs.python }}
-      elixir: ${{ steps.paths.outputs.elixir }}
       parity: ${{ steps.paths.outputs.parity }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -123,77 +121,8 @@ jobs:
             ogiri-spring-boot-starter/target/*.jar
           retention-days: 7
 
-  python:
-    name: Python
-    needs: repo
-    if: needs.repo.outputs.python == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    services:
-      postgres:
-        image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
-        env:
-          POSTGRES_USER: ogiri
-          POSTGRES_PASSWORD: ogiri
-          POSTGRES_DB: ogiri_test
-        ports: ['5432:5432']
-        options: --health-cmd "pg_isready -U ogiri -d ogiri_test" --health-interval 5s --health-timeout 5s --health-retries 30
-    env:
-      MISE_ENABLE_TOOLS: python,uv
-      OGIRI_TEST_DATABASE: postgresql
-      OGIRI_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/ogiri_test
-      OGIRI_TEST_JDBC_USER: ogiri
-      OGIRI_TEST_JDBC_PASSWORD: ogiri
-      OGIRI_TEST_DATABASE_URL: postgresql://ogiri:ogiri@localhost:5432/ogiri_test
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
-        with:
-          version: 2026.8.10
-          cache: false
-      - run: mise run check:python:full
-
-  elixir:
-    name: Elixir
-    needs: repo
-    if: needs.repo.outputs.elixir == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    services:
-      postgres:
-        image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
-        env:
-          POSTGRES_USER: ogiri
-          POSTGRES_PASSWORD: ogiri
-          POSTGRES_DB: ogiri_test
-        ports: ['5432:5432']
-        options: --health-cmd "pg_isready -U ogiri -d ogiri_test" --health-interval 5s --health-timeout 5s --health-retries 30
-    env:
-      MISE_ENABLE_TOOLS: erlang,elixir
-      OGIRI_TEST_DATABASE: postgresql
-      OGIRI_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/ogiri_test
-      OGIRI_TEST_JDBC_USER: ogiri
-      OGIRI_TEST_JDBC_PASSWORD: ogiri
-      OGIRI_TEST_DATABASE_URL: postgresql://ogiri:ogiri@localhost:5432/ogiri_test
-      DATABASE_URL: postgresql://ogiri:ogiri@localhost:5432/ogiri_test
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
-        with:
-          version: 2026.8.10
-          cache: false
-      - run: mise run check:elixir:full
-
   parity:
-    name: Cross-platform parity
+    name: Spring HTTP conformance
     needs: repo
     if: needs.repo.outputs.parity == 'true'
     runs-on: ubuntu-latest
@@ -201,7 +130,7 @@ jobs:
     permissions:
       contents: read
     env:
-      MISE_ENABLE_TOOLS: python,uv,node,java,maven,erlang,elixir
+      MISE_ENABLE_TOOLS: python,uv,node,java,maven
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -215,7 +144,7 @@ jobs:
   quality-gates:
     name: quality-gates
     if: always()
-    needs: [repo, java, python, elixir, parity]
+    needs: [repo, java, parity]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

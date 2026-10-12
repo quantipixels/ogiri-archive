@@ -2,15 +2,11 @@
 
 Ogiri provides opaque bearer sessions: no JWTs and immediate server-side revocation, with optional cookie transport. Every authenticated request checks the stored session. Keep your accounts and authorization rules; Ogiri handles the session lifecycle.
 
-## One protocol, three implementations
+## Spring Boot library
 
-| Implementation | Location |
-| --- | --- |
-| Spring Boot | This repo's Maven modules: [`ogiri`](ogiri/) [`ogiri-spring-boot-autoconfigure`](ogiri-spring-boot-autoconfigure/), and [`ogiri-spring-boot-starter`](ogiri-spring-boot-starter/) |
-| FastAPI | [`packages/python`](packages/python/README.md) (being built) |
-| Phoenix | [`packages/elixir`](packages/elixir/README.md) (being built) |
+Ogiri consists of the Maven modules [`ogiri`](ogiri/), [`ogiri-spring-boot-autoconfigure`](ogiri-spring-boot-autoconfigure/) and [`ogiri-spring-boot-starter`](ogiri-spring-boot-starter/). It follows the [protocol](contracts/PROTOCOL.md), verified by the Python [HTTP conformance suite](contracts/conformance/), and supports **Spring Boot 4.1 / Java 17+**, with **PostgreSQL and MySQL 8+**.
 
-All three follow the [shared protocol](contracts/PROTOCOL.md) and [HTTP conformance suite](contracts/conformance/check.py). The Spring modules support **Spring Boot 4.1 / Java 17+**, with **PostgreSQL and MySQL 8+**.
+Use the [auth-design skill](skills/auth-design/SKILL.md) to plan an application’s authentication and authorisation.
 
 This is a new, unpublished prototype API and schema. Earlier v3/v4 credentials and database layouts are incompatible; use the application-owned migration and require existing users to sign in again.
 
@@ -94,7 +90,7 @@ The configurer installs the dedicated DTA converter/provider/filter, error handl
 
 Every authentication reads the primary database and current account state. Mutations commit independently of surrounding application transactions; reads suspend their snapshots. Ordinary calls support a one-connection pool; an outer transaction holding a connection needs spare capacity. Cleanup is bounded with SKIP LOCKED and does not determine authentication expiry.
 
-See the [independent sample](examples/spring-app/README.md) for build, startup and HTTP exercises. FastAPI and Phoenix implementations live under [packages/python](packages/python/) and [packages/elixir](packages/elixir/). Licensed under Apache-2.0.
+See the [independent sample](examples/spring-app/README.md) for build, startup and HTTP exercises. Licensed under Apache-2.0.
 
 ### Spring public API
 

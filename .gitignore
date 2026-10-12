@@ -5,11 +5,16 @@
 .env
 .DS_Store
 
-# Python/Phoenix dependency and build outputs
+# Conformance suite dependencies and caches
 **/.venv/
 **/__pycache__/
 **/.pytest_cache/
 **/.ruff_cache/
-**/_build/
-**/deps/
 **/node_modules/
+
+# IDE metadata and extracted application build output
+.project
+.settings/
+.classpath
+.factorypath
+/META-INF/

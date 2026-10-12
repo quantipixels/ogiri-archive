@@ -78,18 +78,9 @@ def staged():
                 if b"\0" not in data and data and not data.endswith(b"\n"):
                     raise ValueError(f"formatter: {path}: missing final newline")
             lint(changed)
-            # Staged source/config snapshots; reuse already-installed formatter dependencies.
-            env = dict(os.environ, UV_PROJECT_ENVIRONMENT=str(original / "packages/python/.venv"),
-                       MIX_DEPS_PATH=str(original / "packages/elixir/deps"),
-                       MIX_BUILD_PATH=str(original / "packages/elixir/_build"))
-            for platform, suffixes in (("python", {".py", ".pyi"}), ("elixir", {".ex", ".exs"})):
-                prefix = Path("packages") / platform
-                selected = [str(p.relative_to(prefix)) for p in changed if p.is_relative_to(prefix) and p.suffix in suffixes]
-                if selected:
-                    run("bash", original / f"scripts/platform/{platform}.sh", "staged", *selected, env=env)
             java_files = [str(p) for p in changed if p.suffix == ".java" and p.as_posix().startswith(("ogiri/", "ogiri-spring-boot-starter/", "examples/spring-app/"))]
             if java_files:
-                run("bash", original / "scripts/platform/java.sh", "staged", *java_files, env=env)
+                run("bash", original / "scripts/platform/java.sh", "staged", *java_files)
         finally:
             os.chdir(original)
     print("check:staged: PASS", flush=True)
@@ -105,7 +96,7 @@ def paths():
         changed = git_paths("diff", "--name-only", base, "HEAD")
     common = {"mise.toml", "lefthook.yml", ".gitignore"}
     shared = changed is None or any(p.as_posix() in common or p.as_posix().startswith((".github/", "contracts/", "examples/")) or (p.as_posix().startswith("scripts/") and not p.as_posix().startswith("scripts/platform/")) for p in changed)
-    prefixes = {"java": ("ogiri/", "ogiri-spring-boot-starter/", "scripts/platform/java.sh"), "python": ("packages/python/", "scripts/platform/python.sh"), "elixir": ("packages/elixir/", "scripts/platform/elixir.sh"), "parity": ("packages/", "ogiri/", "ogiri-spring-boot-starter/", "scripts/platform/")}
+    prefixes = {"java": ("ogiri/", "ogiri-spring-boot-starter/", "scripts/platform/java.sh"), "parity": ("contracts/conformance/", "ogiri/", "ogiri-spring-boot-starter/", "scripts/platform/")}
     results = {key: shared or any(p.as_posix().startswith(value) or (key in {"java", "parity"} and p.as_posix() == "pom.xml") for p in (changed or [])) for key, value in prefixes.items()}
     output = "".join(f"{key}={str(value).lower()}\n" for key, value in results.items())
     print(output, end="")
@@ -117,7 +108,7 @@ def result():
     needs = json.loads(os.environ["GATE_RESULTS"])
     assert needs["repo"]["result"] == "success", f"repo: {needs['repo']['result']}"
     selected = needs["repo"]["outputs"]
-    for name in ("java", "python", "elixir", "parity"):
+    for name in ("java", "parity"):
         expected = selected[name] == "true"
         status = needs[name]["result"]
         assert status == "success" or (not expected and status == "skipped"), f"{name}: {status} (selected={expected})"
