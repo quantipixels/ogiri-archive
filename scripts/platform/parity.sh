@@ -7,6 +7,7 @@ if [[ ${1:-} == full ]]; then shift; fi
 if (($#)); then
     exec contracts/conformance/run.sh "$@"
 fi
-cd contracts/conformance
-uv sync --locked
-uv run pytest
+# Default: every profile against the packaged Spring sample (plain HTTP, so no Secure cookies).
+bash scripts/platform/java.sh sample
+OGIRI_COOKIE_SECURE=false exec contracts/conformance/run.sh --profile all \
+    --sample-command 'python3 examples/spring-app/run.py'
