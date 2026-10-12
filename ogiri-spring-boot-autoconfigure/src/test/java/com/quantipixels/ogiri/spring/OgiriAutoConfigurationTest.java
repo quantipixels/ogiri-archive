@@ -36,6 +36,27 @@ class OgiriAutoConfigurationTest {
 
     @Test
     @Tag("database")
+    void defaultChainDoesNotEnableCorsWithoutHostConfiguration() {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .run(
+                        context -> {
+                            assertThat(context).hasNotFailed();
+                            assertThat(
+                                            context.getBean(
+                                                            org.springframework.security.web
+                                                                    .SecurityFilterChain.class)
+                                                    .getFilters())
+                                    .noneMatch(
+                                            filter ->
+                                                    filter
+                                                            instanceof
+                                                            org.springframework.web.filter
+                                                                    .CorsFilter);
+                        });
+    }
+
+    @Test
+    @Tag("database")
     void missingMailFailsWithActionableCause() {
         new WebApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(OgiriAutoConfiguration.class))

@@ -304,6 +304,35 @@ public final class OgiriAutoConfiguration {
             com.quantipixels.ogiri.security.OgiriRealms realms,
             OgiriProperties properties)
             throws Exception {
+        // These defaults belong only to the fallback chain owned by Ogiri.
+        http.sessionManagement(
+                        config ->
+                                config.sessionCreationPolicy(
+                                        org.springframework.security.config.http
+                                                .SessionCreationPolicy.STATELESS))
+                .requestCache(
+                        org.springframework.security.config.annotation.web.configurers
+                                        .AbstractHttpConfigurer
+                                ::disable)
+                .csrf(
+                        org.springframework.security.config.annotation.web.configurers
+                                        .AbstractHttpConfigurer
+                                ::disable)
+                .exceptionHandling(
+                        config ->
+                                config.authenticationEntryPoint(
+                                                (request, response, failure) ->
+                                                        com.quantipixels.ogiri.security.DtaErrors
+                                                                .unauthorized(
+                                                                        request,
+                                                                        response,
+                                                                        realms.resolve(request)
+                                                                                .settings()
+                                                                                .basePath()))
+                                        .accessDeniedHandler(
+                                                (request, response, failure) ->
+                                                        com.quantipixels.ogiri.security.DtaErrors
+                                                                .forbidden(response)));
         http.with(OgiriConfigurer.ogiri(realms), config -> {});
         return http.authorizeHttpRequests(
                         routes ->
