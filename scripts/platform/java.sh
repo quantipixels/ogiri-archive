@@ -65,6 +65,7 @@ full)
     release
     ;;
 sample)
+    "${maven[@]}" -DskipTests verify
     stage
     "${maven[@]}" "${consumer[@]}" -DskipTests verify spring-boot:repackage
     ;;
