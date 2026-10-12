@@ -133,6 +133,7 @@ class AccountBindingTest {
     @Test
     void upgradeBackfillsAccountGenerationsAndInvalidatesLegacySessions() throws Exception {
         var original = create("upgrade@example.test");
+        var other = create("upgrade-other@example.test");
         signIn.signIn(original.email(), "test-password");
         jdbc.execute("ALTER TABLE users DROP COLUMN ogiri_generation");
         jdbc.execute("ALTER TABLE ogiri_sessions DROP COLUMN account_generation");
@@ -145,10 +146,14 @@ class AccountBindingTest {
                 .execute(source);
         var generation = accounts.findById(original.id()).orElseThrow().generation();
         assertFalse(generation.isBlank());
+        var otherGeneration = accounts.findById(other.id()).orElseThrow().generation();
+        assertFalse(otherGeneration.isBlank());
+        assertNotEquals(generation, otherGeneration);
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM ogiri_sessions", Integer.class));
         jdbc.update("DELETE FROM users WHERE id = ?", Long.valueOf(original.id()));
         var replacement = create("upgrade@example.test");
         assertNotEquals(generation, replacement.generation());
+        assertNotEquals(otherGeneration, replacement.generation());
         assertFalse(replacement.view(false).containsKey("ogiri_generation"));
     }
 
