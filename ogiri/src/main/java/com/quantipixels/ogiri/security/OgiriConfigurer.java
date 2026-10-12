@@ -2,6 +2,8 @@
 package com.quantipixels.ogiri.security;
 
 import com.quantipixels.ogiri.security.internal.DtaAuthenticationConverter;
+import com.quantipixels.ogiri.security.internal.DtaAuthenticationToken;
+import com.quantipixels.ogiri.security.internal.DtaHeaderWriter;
 import com.quantipixels.ogiri.security.internal.OgiriCsrfFilter;
 import com.quantipixels.ogiri.security.internal.OgiriExceptionTranslationFilter;
 import com.quantipixels.ogiri.security.internal.OgiriRealmAuthenticationFilter;
@@ -128,7 +130,8 @@ public final class OgiriConfigurer extends AbstractHttpConfigurer<OgiriConfigure
     }
 
     public static boolean tokenResetWorkflow(
-            HttpServletRequest request, com.quantipixels.ogiri.account.OgiriSettings settings) {
+            HttpServletRequest request,
+            com.quantipixels.ogiri.account.internal.OgiriSettings settings) {
         return settings.requireClientPasswordResetToken()
                 && path(request).equals(mount(request, settings.basePath()) + "/password")
                 && List.of("PUT", "PATCH").contains(request.getMethod());

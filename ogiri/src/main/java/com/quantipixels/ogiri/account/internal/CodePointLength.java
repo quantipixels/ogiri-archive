@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.account;
+package com.quantipixels.ogiri.account.internal;
 
 import jakarta.validation.Constraint;
 import jakarta.validation.Payload;

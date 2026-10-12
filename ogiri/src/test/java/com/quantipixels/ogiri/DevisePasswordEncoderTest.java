@@ -4,7 +4,7 @@ package com.quantipixels.ogiri;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.quantipixels.ogiri.account.DevisePasswordEncoder;
+import com.quantipixels.ogiri.account.internal.DevisePasswordEncoder;
 import org.junit.jupiter.api.Test;
 
 class DevisePasswordEncoderTest {

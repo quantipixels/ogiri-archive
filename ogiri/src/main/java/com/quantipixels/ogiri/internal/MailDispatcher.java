@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.internal;
 
-import com.quantipixels.ogiri.DtaFailure;
 import com.quantipixels.ogiri.mail.OgiriMailer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

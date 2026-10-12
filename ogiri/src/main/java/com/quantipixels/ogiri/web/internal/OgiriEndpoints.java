@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.web.internal;
 
-import com.quantipixels.ogiri.DtaFailure;
 import com.quantipixels.ogiri.SessionStoreException;
-import com.quantipixels.ogiri.security.DtaHeaderWriter;
+import com.quantipixels.ogiri.internal.DtaFailure;
 import com.quantipixels.ogiri.security.OgiriAuthentication;
 import com.quantipixels.ogiri.security.OgiriRuntime;
-import com.quantipixels.ogiri.security.ResponseCredentials;
+import com.quantipixels.ogiri.security.internal.DtaHeaderWriter;
+import com.quantipixels.ogiri.security.internal.ResponseCredentials;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Map;
@@ -26,15 +26,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("${ogiri.base-path:/auth}")
 public final class OgiriEndpoints {
     private final OgiriRuntime runtime;
-    private final com.quantipixels.ogiri.account.RegistrationService registration;
-    private final com.quantipixels.ogiri.account.PasswordService passwords;
-    private final com.quantipixels.ogiri.account.ActivationService activation;
+    private final com.quantipixels.ogiri.account.internal.RegistrationService registration;
+    private final com.quantipixels.ogiri.account.internal.PasswordService passwords;
+    private final com.quantipixels.ogiri.account.internal.ActivationService activation;
 
     public OgiriEndpoints(
             OgiriRuntime runtime,
-            com.quantipixels.ogiri.account.RegistrationService registration,
-            com.quantipixels.ogiri.account.PasswordService passwords,
-            com.quantipixels.ogiri.account.ActivationService activation) {
+            com.quantipixels.ogiri.account.internal.RegistrationService registration,
+            com.quantipixels.ogiri.account.internal.PasswordService passwords,
+            com.quantipixels.ogiri.account.internal.ActivationService activation) {
         this.runtime = runtime;
         this.registration = registration;
         this.passwords = passwords;
@@ -249,7 +249,7 @@ public final class OgiriEndpoints {
         if (authentication instanceof OgiriAuthentication identity && identity.isAuthenticated()) {
             return identity;
         }
-        throw com.quantipixels.ogiri.account.RegistrationService.failure(404, message);
+        throw com.quantipixels.ogiri.account.internal.RegistrationService.failure(404, message);
     }
 
     public record Login(String email, String password) {

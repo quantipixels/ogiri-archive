@@ -2,6 +2,7 @@
 package com.quantipixels.ogiri.account;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
@@ -78,6 +79,14 @@ public final class OgiriAccount implements UserDetails {
 
     public String uid() {
         return text("uid");
+    }
+
+    /**
+     * Password accounts need not store a Devise provider column. Explicit providers are preserved.
+     */
+    public String provider() {
+        String value = text("provider");
+        return value.isBlank() ? "email" : value;
     }
 
     public String email() {

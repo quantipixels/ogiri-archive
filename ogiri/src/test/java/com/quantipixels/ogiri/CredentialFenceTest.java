@@ -5,12 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.quantipixels.ogiri.account.DevisePasswordEncoder;
-import com.quantipixels.ogiri.account.JdbcDeviseAccountStore;
 import com.quantipixels.ogiri.account.OgiriAccount;
-import com.quantipixels.ogiri.account.OgiriSettings;
-import com.quantipixels.ogiri.account.SignInService;
+import com.quantipixels.ogiri.account.internal.DevisePasswordEncoder;
+import com.quantipixels.ogiri.account.internal.JdbcDeviseAccountStore;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
+import com.quantipixels.ogiri.account.internal.SignInService;
 import com.quantipixels.ogiri.internal.AuthTransactions;
+import com.quantipixels.ogiri.internal.DtaFailure;
 import com.quantipixels.ogiri.internal.SessionRepository;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -75,7 +76,7 @@ class CredentialFenceTest {
         var settings = settings();
         var sessions = new SessionRepository(tx, SessionPolicy.defaults());
         var activation =
-                new com.quantipixels.ogiri.account.ActivationService(
+                new com.quantipixels.ogiri.account.internal.ActivationService(
                         accounts,
                         tx,
                         sessions,

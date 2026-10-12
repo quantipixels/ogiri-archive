@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.spring;
+package com.quantipixels.ogiri.spring.internal;
 
-import com.quantipixels.ogiri.account.JdbcDeviseAccountStore;
 import com.quantipixels.ogiri.account.OgiriAccount;
+import com.quantipixels.ogiri.account.internal.JdbcDeviseAccountStore;
 import org.springframework.security.authentication.AuthenticationEventPublisher;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 
 /** Keeps DTA tokens and account columns out of application event payloads. */
-final class RedactedAuthenticationEvents implements AuthenticationEventPublisher {
+public final class RedactedAuthenticationEvents implements AuthenticationEventPublisher {
     private final AuthenticationEventPublisher delegate;
     private final String realm;
 
-    RedactedAuthenticationEvents(AuthenticationEventPublisher delegate, String realm) {
+    public RedactedAuthenticationEvents(AuthenticationEventPublisher delegate, String realm) {
         this.realm = realm;
         this.delegate = delegate;
     }

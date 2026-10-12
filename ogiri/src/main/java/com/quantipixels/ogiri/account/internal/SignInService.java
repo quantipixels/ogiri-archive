@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.account;
+package com.quantipixels.ogiri.account.internal;
 
-import com.quantipixels.ogiri.DtaFailure;
 import com.quantipixels.ogiri.IssuedSession;
 import com.quantipixels.ogiri.Subject;
+import com.quantipixels.ogiri.account.AccountStore;
+import com.quantipixels.ogiri.account.OgiriAccount;
 import com.quantipixels.ogiri.internal.AuthTransactions;
+import com.quantipixels.ogiri.internal.DtaFailure;
 import com.quantipixels.ogiri.internal.SessionRepository;
 import com.quantipixels.ogiri.internal.Tokens;
 import java.util.Optional;

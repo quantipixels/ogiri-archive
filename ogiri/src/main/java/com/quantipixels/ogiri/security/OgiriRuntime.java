@@ -2,10 +2,12 @@
 package com.quantipixels.ogiri.security;
 
 import com.quantipixels.ogiri.account.AccountStore;
-import com.quantipixels.ogiri.account.OgiriSettings;
-import com.quantipixels.ogiri.account.SignInService;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
+import com.quantipixels.ogiri.account.internal.SignInService;
 import com.quantipixels.ogiri.internal.AuthTransactions;
 import com.quantipixels.ogiri.internal.SessionRepository;
+import com.quantipixels.ogiri.security.internal.OgiriTokenAuthenticationProvider;
+import com.quantipixels.ogiri.security.internal.ResponseCredentials;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.authentication.AuthenticationManagerResolver;
 import org.springframework.security.authentication.ProviderManager;

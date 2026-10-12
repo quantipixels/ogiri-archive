@@ -3,19 +3,20 @@ package com.quantipixels.ogiri.spring;
 
 import com.quantipixels.ogiri.SessionPolicy;
 import com.quantipixels.ogiri.account.AccountStore;
-import com.quantipixels.ogiri.account.AccountValidator;
-import com.quantipixels.ogiri.account.ActivationService;
-import com.quantipixels.ogiri.account.DevisePasswordEncoder;
-import com.quantipixels.ogiri.account.JdbcDeviseAccountStore;
 import com.quantipixels.ogiri.account.OgiriAuthorities;
-import com.quantipixels.ogiri.account.PasswordService;
-import com.quantipixels.ogiri.account.RegistrationService;
-import com.quantipixels.ogiri.account.SignInService;
+import com.quantipixels.ogiri.account.internal.AccountValidator;
+import com.quantipixels.ogiri.account.internal.ActivationService;
+import com.quantipixels.ogiri.account.internal.DevisePasswordEncoder;
+import com.quantipixels.ogiri.account.internal.JdbcDeviseAccountStore;
+import com.quantipixels.ogiri.account.internal.PasswordService;
+import com.quantipixels.ogiri.account.internal.RegistrationService;
+import com.quantipixels.ogiri.account.internal.SignInService;
 import com.quantipixels.ogiri.internal.AuthTransactions;
 import com.quantipixels.ogiri.internal.MailDispatcher;
 import com.quantipixels.ogiri.internal.SessionRepository;
 import com.quantipixels.ogiri.security.OgiriRealms;
 import com.quantipixels.ogiri.security.OgiriRuntime;
+import com.quantipixels.ogiri.spring.internal.RedactedAuthenticationEvents;
 import com.quantipixels.ogiri.web.internal.OgiriEndpoints;
 import java.util.ArrayList;
 import java.util.List;
@@ -124,7 +125,8 @@ public class OgiriRealmConfiguration {
                             links);
             var manager =
                     new org.springframework.security.authentication.ProviderManager(
-                            new com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider(
+                            new com.quantipixels.ogiri.security.internal
+                                    .OgiriTokenAuthenticationProvider(
                                     accounts, transactions, sessions, settings));
             manager.setAuthenticationEventPublisher(
                     new RedactedAuthenticationEvents(events, settings.realm()));
