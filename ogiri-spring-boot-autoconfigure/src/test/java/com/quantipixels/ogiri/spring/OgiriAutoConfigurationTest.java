@@ -24,6 +24,82 @@ class OgiriAutoConfigurationTest {
                             org.springframework.mail.javamail.JavaMailSenderImpl::new)
                     .withPropertyValues("ogiri.public-base-url=https://accounts.example.test");
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(
+            strings = {
+                "id",
+                "uid",
+                "email",
+                "provider",
+                "ogiri_generation",
+                "encrypted_password",
+                "password",
+                "password_confirmation",
+                "current_password",
+                "tokens",
+                "reset_password_token",
+                "reset_password_sent_at",
+                "allow_password_change",
+                "remember_created_at",
+                "confirmation_token",
+                "confirmed_at",
+                "confirmation_sent_at",
+                "unconfirmed_email",
+                "failed_attempts",
+                "unlock_token",
+                "locked_at",
+                "sign_in_count",
+                "current_sign_in_at",
+                "last_sign_in_at",
+                "current_sign_in_ip",
+                "last_sign_in_ip",
+                "created_at",
+                "updated_at",
+                "ENCRYPTED_PASSWORD",
+                "Provider",
+                "CONFIRMED_AT"
+            })
+    @Tag("database")
+    void reservedPermittedFieldsFailAtStartup(String field) {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues("ogiri.permitted-fields=" + field)
+                .run(
+                        context ->
+                                assertThat(context.getStartupFailure())
+                                        .hasRootCauseMessage(
+                                                "ogiri.permitted-fields cannot include reserved account column: "
+                                                        + field));
+    }
+
+    @Test
+    @Tag("database")
+    void additionalRealmRejectsReservedFieldsAndCustomBusinessFieldsRemainAllowed() {
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues(
+                        "ogiri.permitted-fields=department",
+                        "ogiri.realms.admins.base-path=/admin_auth",
+                        "ogiri.realms.admins.account.table=admins",
+                        "ogiri.realms.admins.permitted-fields=locked_at")
+                .run(
+                        context ->
+                                assertThat(context.getStartupFailure())
+                                        .hasRootCauseMessage(
+                                                "ogiri.permitted-fields cannot include reserved account column: locked_at"));
+        runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)
+                .withPropertyValues("ogiri.permitted-fields=department")
+                .run(
+                        context -> {
+                            assertThat(context).hasNotFailed();
+                            var input =
+                                    com.quantipixels.ogiri.account.AccountInput.from(
+                                            java.util.Map.of("department", "engineering"),
+                                            context.getBean(OgiriSettings.class),
+                                            false);
+                            assertThat(input.attributes())
+                                    .containsEntry("department", "engineering");
+                        });
+    }
+
     private static DataSource source() {
         if (System.getenv("OGIRI_TEST_JDBC_URL") == null) {
             return new DriverManagerDataSource();
