@@ -20,7 +20,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(
-        classes = {Application.class, HostChainTest.Host.class},
+        classes = {
+            Application.class,
+            HostChainTest.Host.class,
+            CookieConsumerTest.HeldResponse.class
+        },
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "spring.datasource.url=${OGIRI_TEST_JDBC_URL}",
@@ -36,6 +40,24 @@ class CookieConsumerTest {
     @Value("${local.server.port}")
     int port;
 
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    @org.springframework.web.bind.annotation.RestController
+    static class HeldResponse {
+        final java.util.concurrent.CountDownLatch authenticated =
+                new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch release =
+                new java.util.concurrent.CountDownLatch(1);
+
+        @org.springframework.web.bind.annotation.GetMapping("/held-cookie-batch")
+        String held() throws InterruptedException {
+            authenticated.countDown();
+            if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                throw new AssertionError("Response was not released");
+            return "done";
+        }
+    }
+
+    @Autowired HeldResponse held;
     @Autowired JdbcTemplate jdbc;
     private final HttpClient http = HttpClient.newHttpClient();
     private final JsonMapper json = JsonMapper.builder().build();
@@ -168,6 +190,95 @@ class CookieConsumerTest {
         jdbc.update("UPDATE ogiri_sessions SET rotated_at = 0 WHERE client = ?", client);
         assertEquals(401, request("GET", "/me", null, Map.of("Cookie", original)).statusCode());
         assertEquals(200, request("GET", "/me", null, Map.of("Cookie", current)).statusCode());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "false,false",
+        "false,true",
+        "true,false",
+        "true,true"
+    })
+    void emailChangeReturnsUsableNewUidEvenInBatch(boolean batch, boolean headerRequest)
+            throws Exception {
+        var issued = signup("/auth");
+        String original = cookie(issued, "auth_cookie");
+        String client = issued.headers().firstValue("client").orElseThrow();
+        if (!batch)
+            jdbc.update("UPDATE ogiri_sessions SET rotated_at = 0 WHERE client = ?", client);
+        String csrf = cookie(request("GET", "/auth", null, Map.of()), "XSRF-TOKEN");
+        var headers = new java.util.HashMap<String, String>();
+        headers.put("Cookie", original + "; " + csrf);
+        headers.put("X-XSRF-TOKEN", value(csrf));
+        if (headerRequest)
+            for (String name : java.util.List.of("uid", "client", "access-token"))
+                headers.put(name, issued.headers().firstValue(name).orElseThrow());
+        String email = "changed-" + java.util.UUID.randomUUID() + "@example.com";
+        var changed = request("PUT", "/auth", Map.of("email", email), headers);
+        assertEquals(200, changed.statusCode(), changed.body());
+        assertEquals(email, changed.headers().firstValue("uid").orElseThrow());
+        assertTrue(
+                changed.headers().allValues("Set-Cookie").stream()
+                        .anyMatch(c -> c.startsWith("auth_cookie=")),
+                "The uid transition must deliver a usable auth cookie even for a batch request");
+        String current = cookie(changed, "auth_cookie");
+        var decoded =
+                json.readValue(
+                        java.net.URLDecoder.decode(value(current), StandardCharsets.UTF_8),
+                        Map.class);
+        assertEquals(email, decoded.get("uid"));
+        assertEquals(
+                changed.headers().firstValue("access-token").orElseThrow(),
+                decoded.get("access-token"));
+        assertFalse(changed.headers().firstValue("access-token").orElseThrow().isBlank());
+        jdbc.update("UPDATE ogiri_sessions SET rotated_at = 0 WHERE client = ?", client);
+        assertEquals(401, request("GET", "/me", null, Map.of("Cookie", original)).statusCode());
+        var next = request("GET", "/me", null, Map.of("Cookie", current));
+        assertEquals(200, next.statusCode(), next.body());
+        assertEquals(email, json.readValue(next.body(), Map.class).get("uid"));
+    }
+
+    @Test
+    void alreadyAuthenticatedBatchCannotOverwriteUidTransitionCookie() throws Exception {
+        var issued = signup("/auth");
+        String original = cookie(issued, "auth_cookie");
+        String csrf = cookie(request("GET", "/auth", null, Map.of()), "XSRF-TOKEN");
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var pending =
+                    executor.submit(
+                            () ->
+                                    request(
+                                            "GET",
+                                            "/held-cookie-batch",
+                                            null,
+                                            Map.of("Cookie", original)));
+            assertTrue(held.authenticated.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            String email = "overlap-" + java.util.UUID.randomUUID() + "@example.com";
+            var changed =
+                    request(
+                            "PUT",
+                            "/auth",
+                            Map.of("email", email),
+                            Map.of("Cookie", original + "; " + csrf, "X-XSRF-TOKEN", value(csrf)));
+            assertEquals(200, changed.statusCode(), changed.body());
+            String current = cookie(changed, "auth_cookie");
+            held.release.countDown();
+            var late = pending.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(200, late.statusCode(), late.body());
+            assertTrue(late.headers().firstValue("access-token").orElseThrow().isBlank());
+            assertFalse(
+                    late.headers().allValues("Set-Cookie").stream()
+                            .anyMatch(c -> c.startsWith("auth_cookie=")));
+            jdbc.update(
+                    "UPDATE ogiri_sessions SET rotated_at = 0 WHERE client = ?",
+                    issued.headers().firstValue("client").orElseThrow());
+            assertEquals(200, request("GET", "/me", null, Map.of("Cookie", current)).statusCode());
+        } finally {
+            held.release.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS));
+        }
     }
 
     private HttpResponse<String> registration(

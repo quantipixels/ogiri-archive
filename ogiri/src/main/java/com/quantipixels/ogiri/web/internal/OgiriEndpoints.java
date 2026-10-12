@@ -201,6 +201,8 @@ public final class OgiriEndpoints {
         var credentials =
                 (ResponseCredentials) request.getAttribute(runtime.responseCredentialsAttribute());
         if (!changed.credentialRetained()) clear(request, response);
+        else if (changed.issued() != null)
+            ResponseCredentials.issued(request, runtime, changed.issued(), account.uid());
         else if (credentials != null)
             request.setAttribute(
                     runtime.responseCredentialsAttribute(),

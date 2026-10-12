@@ -2,7 +2,14 @@
 package com.quantipixels.ogiri.account;
 
 /** Account mutation and credential survival are decided in the same transaction. */
-public record AccountChange(OgiriAccount account, boolean credentialRetained) {
+public record AccountChange(
+        OgiriAccount account,
+        boolean credentialRetained,
+        com.quantipixels.ogiri.IssuedSession issued) {
+    public AccountChange(OgiriAccount account, boolean credentialRetained) {
+        this(account, credentialRetained, null);
+    }
+
     @Override
     public String toString() {
         return "AccountChange[redacted]";

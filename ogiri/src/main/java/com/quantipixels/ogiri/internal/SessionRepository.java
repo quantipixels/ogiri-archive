@@ -293,6 +293,45 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
                 });
     }
 
+    /** A uid change is a credential transition, even when authentication was a batch request. */
+    public IssuedSession reissueLocked(Subject subject, UUID id) {
+        var current =
+                jdbc
+                        .query(
+                                "SELECT "
+                                        + COLUMNS
+                                        + " FROM ogiri_sessions WHERE "
+                                        + OWNER
+                                        + " AND id = ? AND expires_at > "
+                                        + nowSql()
+                                        + " FOR UPDATE",
+                                SessionRepository::row,
+                                subject.realm(),
+                                subject.tenantId(),
+                                subject.subjectId(),
+                                id.toString())
+                        .stream()
+                        .findFirst();
+        if (current.isEmpty()) return null;
+        long now = transactions.now();
+        String token = Tokens.generate();
+        var previous = current.orElseThrow();
+        var session =
+                new Session(
+                        previous.id(),
+                        subject,
+                        previous.client(),
+                        previous.createdAt(),
+                        Instant.ofEpochMilli(Math.addExact(now, policy.lifetime().toMillis())));
+        jdbc.update(
+                "UPDATE ogiri_sessions SET token_hash = ?, previous_token_hash = NULL, last_token_hash = NULL, rotated_at = ?, expires_at = ? WHERE id = ?",
+                Tokens.digest(token),
+                now,
+                session.expiresAt().toEpochMilli(),
+                id.toString());
+        return new IssuedSession(session, token);
+    }
+
     public boolean liveLocked(Subject subject, UUID id) {
         return id != null
                 && !jdbc.queryForList(

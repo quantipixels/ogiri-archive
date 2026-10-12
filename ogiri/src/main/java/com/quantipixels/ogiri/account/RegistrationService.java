@@ -139,11 +139,19 @@ public final class RegistrationService {
                                                     text(values, "confirm_success_url"),
                                                     text(values, "config_name"))
                                             : new ActivationService.Delivery(updated, null);
+                            boolean retained =
+                                    sessions.liveLocked(signIn.subject(current), session.id());
+                            IssuedSession issued = null;
+                            if (retained
+                                    && settings.changeHeadersOnEachRequest()
+                                    && !identity.uid().equals(delivery.account().uid())) {
+                                issued =
+                                        sessions.reissueLocked(
+                                                signIn.subject(current), session.id());
+                                retained = issued != null;
+                            }
                             return new Mutation(
-                                    new AccountChange(
-                                            delivery.account(),
-                                            sessions.liveLocked(
-                                                    signIn.subject(current), session.id())),
+                                    new AccountChange(delivery.account(), retained, issued),
                                     delivery);
                         });
         result.delivery().verify(settings.paranoid());
