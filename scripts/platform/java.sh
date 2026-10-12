@@ -4,9 +4,9 @@ mode=${1:-check}
 if (($#)); then shift; fi
 export OGIRI_TEST_DATABASE=${OGIRI_TEST_DATABASE:-postgresql}
 if [[ "$OGIRI_TEST_DATABASE" == mysql ]]; then
-    export OGIRI_TEST_JDBC_URL=${OGIRI_TEST_JDBC_URL:-"jdbc:mysql://localhost:3306/ogiri_test?allowPublicKeyRetrieval=true&sslMode=DISABLED&socketTimeout=10000"}
+    export OGIRI_TEST_JDBC_URL=${OGIRI_TEST_JDBC_URL:-"jdbc:mysql://localhost:${OGIRI_MYSQL_PORT:-3306}/ogiri_test?allowPublicKeyRetrieval=true&sslMode=DISABLED&socketTimeout=10000"}
 else
-    export OGIRI_TEST_JDBC_URL=${OGIRI_TEST_JDBC_URL:-"jdbc:postgresql://localhost:5432/ogiri_test?socketTimeout=10"}
+    export OGIRI_TEST_JDBC_URL=${OGIRI_TEST_JDBC_URL:-"jdbc:postgresql://localhost:${OGIRI_PG_PORT:-5432}/ogiri_test?socketTimeout=10"}
 fi
 export OGIRI_TEST_JDBC_USER=${OGIRI_TEST_JDBC_USER:-ogiri}
 export OGIRI_TEST_JDBC_PASSWORD=${OGIRI_TEST_JDBC_PASSWORD:-ogiri}
