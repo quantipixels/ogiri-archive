@@ -86,7 +86,9 @@ public final class RegistrationService {
                                 return new Result(
                                         account,
                                         sessions.issueLocked(
-                                                signIn.subject(account), Tokens.client()),
+                                                signIn.subject(account),
+                                                Tokens.client(),
+                                                account.generation()),
                                         null);
                             });
             if (result.receipt() != null) result.receipt().verify(settings.paranoid());
@@ -111,6 +113,7 @@ public final class RegistrationService {
                             var current =
                                     accounts.lock(identity.id())
                                             .orElseThrow(() -> failure(404, "User not found."));
+                            settings.requireCurrentAccount(identity, current);
                             validate(input, current, false);
                             var changes = new LinkedHashMap<>(input.attributes());
                             boolean reconfirm = changeEmail(input, current, changes);
@@ -136,11 +139,19 @@ public final class RegistrationService {
                                                     text(values, "confirm_success_url"),
                                                     text(values, "config_name"))
                                             : new ActivationService.Delivery(updated, null);
+                            boolean retained =
+                                    sessions.liveLocked(signIn.subject(current), session.id());
+                            IssuedSession issued = null;
+                            if (retained
+                                    && settings.changeHeadersOnEachRequest()
+                                    && !identity.uid().equals(delivery.account().uid())) {
+                                issued =
+                                        sessions.reissueLocked(
+                                                signIn.subject(current), session.id());
+                                retained = issued != null;
+                            }
                             return new Mutation(
-                                    new AccountChange(
-                                            delivery.account(),
-                                            sessions.liveLocked(
-                                                    signIn.subject(current), session.id())),
+                                    new AccountChange(delivery.account(), retained, issued),
                                     delivery);
                         });
         result.delivery().verify(settings.paranoid());
@@ -176,6 +187,7 @@ public final class RegistrationService {
                                                     failure(
                                                             404,
                                                             "Unable to locate account for destruction."));
+                    settings.requireCurrentAccount(identity, locked);
                     sessions.revokeAllLocked(signIn.subject(identity));
                     accounts.delete(locked.id());
                     return null;

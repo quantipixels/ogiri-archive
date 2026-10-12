@@ -32,6 +32,45 @@ public record OgiriSettings(
         String cookieSameSite,
         String cookiePath,
         List<String> permittedFields) {
+    private static final java.util.Set<String> RESERVED_FIELDS =
+            java.util.Set.of(
+                    "id",
+                    "uid",
+                    "email",
+                    "provider",
+                    "ogiri_generation",
+                    "encrypted_password",
+                    "password",
+                    "password_confirmation",
+                    "current_password",
+                    "tokens",
+                    "token",
+                    "access_token",
+                    "client",
+                    "expiry",
+                    "token_type",
+                    "authentication_token",
+                    "reset_password_token",
+                    "reset_password_sent_at",
+                    "allow_password_change",
+                    "remember_created_at",
+                    "remember_token",
+                    "confirmation_token",
+                    "confirmed_at",
+                    "confirmation_sent_at",
+                    "unconfirmed_email",
+                    "failed_attempts",
+                    "unlock_token",
+                    "locked_at",
+                    "sign_in_count",
+                    "current_sign_in_at",
+                    "last_sign_in_at",
+                    "current_sign_in_ip",
+                    "last_sign_in_ip",
+                    "created_at",
+                    "updated_at",
+                    "password_salt");
+
     public OgiriSettings {
         new com.quantipixels.ogiri.Subject(realm, "", "policy");
         new com.quantipixels.ogiri.SessionPolicy(tokenLifespan, maxNumberOfDevices);
@@ -53,6 +92,14 @@ public record OgiriSettings(
         }
         redirectAllowlist = List.copyOf(redirectAllowlist);
         permittedFields = List.copyOf(permittedFields);
+        for (String field : permittedFields) {
+            if (RESERVED_FIELDS.contains(field.toLowerCase(java.util.Locale.ROOT)))
+                throw new IllegalArgumentException(
+                        "ogiri.permitted-fields cannot include reserved account column: " + field);
+            if (!field.matches("[A-Za-z_][A-Za-z0-9_]*"))
+                throw new IllegalArgumentException(
+                        "ogiri.permitted-fields requires SQL identifiers: " + field);
+        }
     }
 
     public com.quantipixels.ogiri.Subject subject(OgiriAccount account) {
@@ -65,6 +112,13 @@ public record OgiriSettings(
         if (session == null || !expected.equals(session.subject())) {
             throw new com.quantipixels.ogiri.DtaFailure(401, "Unauthorized");
         }
+    }
+
+    /** Recheck under the account lock before a previously authenticated request mutates it. */
+    public void requireCurrentAccount(OgiriAccount identity, OgiriAccount current) {
+        if (!subject(identity).equals(subject(current))
+                || !identity.generation().equals(current.generation()))
+            throw new com.quantipixels.ogiri.DtaFailure(401, "Unauthorized");
     }
 
     private static boolean validPath(String path) {

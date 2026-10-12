@@ -70,6 +70,21 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
 
     /** Participates in the coordinator's transaction after its subject/account locks. */
     public IssuedSession issueLocked(Subject subject, String client) {
+        return issueLocked(subject, client, null);
+    }
+
+    /** Bind a DTA session to a particular account incarnation, under the account lock. */
+    public IssuedSession issueLocked(Subject subject, String client, String generation) {
+        if (generation != null) {
+            jdbc.update(
+                    "DELETE FROM ogiri_sessions WHERE "
+                            + OWNER
+                            + " AND (account_generation IS NULL OR account_generation <> ?)",
+                    subject.realm(),
+                    subject.tenantId(),
+                    subject.subjectId(),
+                    generation);
+        }
         long now = transactions.now();
         jdbc.update(
                 "DELETE FROM ogiri_sessions WHERE " + OWNER + " AND expires_at <= ?",
@@ -102,7 +117,7 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
         jdbc.update(
                 "INSERT INTO ogiri_sessions ("
                         + COLUMNS
-                        + ", token_hash, rotated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + ", token_hash, rotated_at, account_generation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 session.id().toString(),
                 subject.realm(),
                 subject.tenantId(),
@@ -111,7 +126,8 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
                 now,
                 session.expiresAt().toEpochMilli(),
                 Tokens.digest(token),
-                now);
+                now,
+                generation);
         return new IssuedSession(session, token);
     }
 
@@ -140,6 +156,42 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
                 .stream()
                 .filter(Objects::nonNull)
                 .findFirst();
+    }
+
+    /**
+     * Candidate only: account binding and authoritative token validation follow under auth locks.
+     */
+    public Optional<Session> resolve(String realm, String client, String token, boolean rotating) {
+        byte[] digest = Tokens.digest(token);
+        if (digest == null || client.length() > 64) return Optional.empty();
+        var matches =
+                jdbc.query(
+                        "SELECT "
+                                + COLUMNS
+                                + " FROM ogiri_sessions WHERE realm = ? AND tenant_id = '' AND client = ? AND "
+                                + (rotating
+                                        ? "(token_hash = ? OR previous_token_hash = ? OR last_token_hash = ?)"
+                                        : "token_hash = ?"),
+                        SessionRepository::row,
+                        rotating
+                                ? new Object[] {realm, client, digest, digest, digest}
+                                : new Object[] {realm, client, digest});
+        return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
+    public boolean boundTo(Subject subject, String client, String generation) {
+        return jdbc
+                .queryForList(
+                        "SELECT account_generation FROM ogiri_sessions WHERE "
+                                + OWNER
+                                + " AND client = ?",
+                        String.class,
+                        subject.realm(),
+                        subject.tenantId(),
+                        subject.subjectId(),
+                        client)
+                .stream()
+                .anyMatch(generation::equals);
     }
 
     private String nowSql() {
@@ -239,6 +291,45 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
                                     "DELETE FROM ogiri_sessions WHERE id IN (:ids)",
                                     Map.of("ids", ids));
                 });
+    }
+
+    /** A uid change is a credential transition, even when authentication was a batch request. */
+    public IssuedSession reissueLocked(Subject subject, UUID id) {
+        var current =
+                jdbc
+                        .query(
+                                "SELECT "
+                                        + COLUMNS
+                                        + " FROM ogiri_sessions WHERE "
+                                        + OWNER
+                                        + " AND id = ? AND expires_at > "
+                                        + nowSql()
+                                        + " FOR UPDATE",
+                                SessionRepository::row,
+                                subject.realm(),
+                                subject.tenantId(),
+                                subject.subjectId(),
+                                id.toString())
+                        .stream()
+                        .findFirst();
+        if (current.isEmpty()) return null;
+        long now = transactions.now();
+        String token = Tokens.generate();
+        var previous = current.orElseThrow();
+        var session =
+                new Session(
+                        previous.id(),
+                        subject,
+                        previous.client(),
+                        previous.createdAt(),
+                        Instant.ofEpochMilli(Math.addExact(now, policy.lifetime().toMillis())));
+        jdbc.update(
+                "UPDATE ogiri_sessions SET token_hash = ?, previous_token_hash = NULL, last_token_hash = NULL, rotated_at = ?, expires_at = ? WHERE id = ?",
+                Tokens.digest(token),
+                now,
+                session.expiresAt().toEpochMilli(),
+                id.toString());
+        return new IssuedSession(session, token);
     }
 
     public boolean liveLocked(Subject subject, UUID id) {

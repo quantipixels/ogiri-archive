@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.security;
 
-import com.quantipixels.ogiri.Subject;
 import com.quantipixels.ogiri.account.AccountStore;
 import com.quantipixels.ogiri.account.OgiriSettings;
 import com.quantipixels.ogiri.internal.AuthTransactions;
@@ -33,21 +32,27 @@ public final class OgiriTokenAuthenticationProvider implements AuthenticationPro
         if (settings.changeHeadersOnEachRequest()) return rotated(credentials);
         return transactions.read(
                 () -> {
-                    var account = accounts.findByUid(credentials.uid());
-                    var subject =
-                            new Subject(
-                                    settings.realm(),
-                                    "",
-                                    account.map(a -> a.id()).orElse("__ogiri_missing__"));
-                    String client =
-                            credentials.client().length() > 64
-                                    ? "__invalid_client__"
-                                    : credentials.client();
+                    var candidate =
+                            sessions.resolve(
+                                            settings.realm(),
+                                            credentials.client(),
+                                            credentials.token(),
+                                            false)
+                                    .orElseThrow(
+                                            () ->
+                                                    new BadCredentialsException(
+                                                            "Invalid DTA credentials"));
+                    var subject = candidate.subject();
+                    var account = accounts.findById(subject.subjectId());
+                    String client = credentials.client();
                     var session = sessions.find(subject, client, credentials.token());
                     long now = transactions.now();
                     if (account.isEmpty()
                             || session.isEmpty()
+                            || !account.orElseThrow().uid().equals(credentials.uid())
                             || credentials.client().length() > 64
+                            || !sessions.boundTo(
+                                    subject, client, account.orElseThrow().generation())
                             || !account.orElseThrow().active(settings, now)) {
                         throw new BadCredentialsException("Invalid DTA credentials");
                     }
@@ -58,18 +63,24 @@ public final class OgiriTokenAuthenticationProvider implements AuthenticationPro
     private Authentication rotated(DtaCredential credentials) {
         return transactions.write(
                 () -> {
-                    var candidate = accounts.findByUid(credentials.uid());
-                    var subject =
-                            new Subject(
-                                    settings.realm(),
-                                    "",
-                                    candidate.map(a -> a.id()).orElse("__ogiri_missing__"));
+                    var candidate =
+                            sessions.resolve(
+                                            settings.realm(),
+                                            credentials.client(),
+                                            credentials.token(),
+                                            true)
+                                    .orElseThrow(
+                                            () ->
+                                                    new BadCredentialsException(
+                                                            "Invalid DTA credentials"));
+                    var subject = candidate.subject();
                     transactions.lock(subject);
-                    var account = accounts.lock(candidate.map(a -> a.id()).orElse("-1"));
-                    String client =
-                            credentials.client().length() > 64
-                                    ? "__invalid_client__"
-                                    : credentials.client();
+                    var account = accounts.lock(subject.subjectId());
+                    String client = credentials.client();
+                    if (account.isEmpty()
+                            || !sessions.boundTo(
+                                    subject, client, account.orElseThrow().generation()))
+                        throw new BadCredentialsException("Invalid DTA credentials");
                     var result =
                             new com.quantipixels.ogiri.internal.ClientRotation(transactions)
                                     .authenticateLocked(

@@ -254,7 +254,9 @@ public final class ActivationService {
                                     current.text("unlock_token"), PasswordService.digest(token)))
                         throw invalidUnlock();
                     current = clearLockLocked(current);
-                    var issued = sessions.issueLocked(subject(current), Tokens.client());
+                    var issued =
+                            sessions.issueLocked(
+                                    subject(current), Tokens.client(), current.generation());
                     var query =
                             new LinkedHashMap<>(PasswordService.authQuery(current, issued, config));
                     query.put("unlock", "true");

@@ -237,6 +237,44 @@ class HostSecurityCompositionTest {
         assertNoSession(rejected);
     }
 
+    @Test
+    void forgedOgiriHeadersCannotBypassHostCsrfWithAFormLoginSession() throws Exception {
+        var client = browser();
+        String csrf = request(client, "GET", "/host/csrf", "", Map.of()).body();
+        var login =
+                request(
+                        client,
+                        "POST",
+                        "/login",
+                        "username=host&password=host-password&host_token=" + csrf,
+                        Map.of("Content-Type", "application/x-www-form-urlencoded"));
+        assertEquals(302, login.statusCode(), login.body());
+        assertEquals(200, request(client, "GET", "/host", "", Map.of()).statusCode());
+        assertEquals(403, request(client, "POST", "/host/change", "", Map.of()).statusCode());
+        for (String token :
+                java.util.List.of("invalid", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")) {
+            var rejected =
+                    request(
+                            client,
+                            "POST",
+                            "/host/change",
+                            "",
+                            Map.of(
+                                    "uid",
+                                    "demo@example.com",
+                                    "client",
+                                    "forged",
+                                    "access-token",
+                                    token));
+            assertEquals(401, rejected.statusCode(), rejected.body());
+        }
+        String currentCsrf = request(client, "GET", "/host/csrf", "", Map.of()).body();
+        assertEquals(
+                200,
+                request(client, "POST", "/host/change", "", Map.of("X-HOST-CSRF", currentCsrf))
+                        .statusCode());
+    }
+
     private void assertNoSession(HttpResponse<String> response) {
         assertTrue(
                 response.headers().allValues("Set-Cookie").stream()

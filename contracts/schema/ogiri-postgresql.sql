@@ -8,6 +8,7 @@ CREATE TABLE ogiri_sessions (
     realm varchar(63) COLLATE "C" NOT NULL,
     tenant_id varchar(255) COLLATE "C" NOT NULL,
     subject_id varchar(255) COLLATE "C" NOT NULL,
+    account_generation varchar(36) COLLATE "C",
     client varchar(64) COLLATE "C" NOT NULL,
     token_hash bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
     previous_token_hash bytea CHECK (octet_length(previous_token_hash) = 32),
@@ -18,3 +19,4 @@ CREATE TABLE ogiri_sessions (
     CONSTRAINT ogiri_sessions_client UNIQUE (realm, tenant_id, subject_id, client)
 );
 CREATE INDEX ogiri_sessions_expiry ON ogiri_sessions (expires_at, id);
+CREATE INDEX ogiri_sessions_credential_lookup ON ogiri_sessions (realm, client);

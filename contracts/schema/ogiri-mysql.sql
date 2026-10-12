@@ -8,6 +8,7 @@ CREATE TABLE ogiri_sessions (
     realm varchar(63) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     tenant_id varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     subject_id varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    account_generation varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin,
     client varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     token_hash varbinary(32) NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
     previous_token_hash varbinary(32) CHECK (octet_length(previous_token_hash) = 32),
@@ -19,3 +20,4 @@ CREATE TABLE ogiri_sessions (
     CONSTRAINT ogiri_sessions_client UNIQUE (realm, tenant_id, subject_id, client)
 ) ENGINE=InnoDB;
 CREATE INDEX ogiri_sessions_expiry ON ogiri_sessions (expires_at, id);
+CREATE INDEX ogiri_sessions_credential_lookup ON ogiri_sessions (realm, client);

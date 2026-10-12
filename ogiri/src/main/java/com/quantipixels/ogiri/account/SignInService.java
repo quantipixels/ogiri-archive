@@ -83,7 +83,6 @@ public final class SignInService {
             transactions.write(
                     () -> {
                         transactions.lock(new Subject(settings.realm(), "", "__ogiri_missing__"));
-                        accounts.lock("-1");
                         return null;
                     });
             failed(new BadCredentialsException("Invalid credentials"), email);
@@ -131,14 +130,19 @@ public final class SignInService {
                             ? new LockedException("Account locked")
                             : new DisabledException("Account inactive"));
         }
-        if (!matches || !verified.equals(current.getPassword())) {
+        if (!matches
+                || !verified.equals(current.getPassword())
+                || !candidate.generation().equals(current.generation())) {
             var delivery = settings.lockable() ? activation.failedLocked(current) : null;
             return new Attempt(null, new DtaFailure(401, INVALID), delivery);
         }
         if (settings.lockable() && !current.text("failed_attempts").equals("0"))
             current = activation.clearLockLocked(current);
         return new Attempt(
-                new Result(current, sessions.issueLocked(subject(current), Tokens.client())),
+                new Result(
+                        current,
+                        sessions.issueLocked(
+                                subject(current), Tokens.client(), current.generation())),
                 null,
                 null);
     }

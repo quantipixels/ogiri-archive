@@ -107,3 +107,13 @@ The first run waits one interval, and context shutdown stops the scheduler. `FOR
 selects expired rows using database time, safely sharing work across instances on PostgreSQL/MySQL.
 Live sessions and persistent subject-lock rows are retained. Authentication enforces expiry even
 when scheduling is disabled or a cleanup run fails; failed store operations retry next interval.
+
+### Account incarnation binding
+
+DTA accounts provide an immutable `ogiri_generation` (at most 36 characters) that changes whenever an account row is replaced. The default account schemas generate a UUID in the database; custom `AccountStore` adapters must supply the equivalent value in each `OgiriAccount`. Ogiri records and checks it on every DTA session, and removes obsolete generations when issuing a new session. Account deletion through Ogiri revokes sessions in the same transaction. Low-level `JdbcSessions` callers remain responsible for their subject lifecycle.
+
+For existing installations, stop Ogiri writers, apply `contracts/schema/migrations/001-account-generation-{postgresql,mysql}.sql` (adapt `users` for every realm), then deploy and restart. The migration invalidates existing sessions and requires sign-in again. Do not copy generation values into replacement accounts or restore account tables independently of session storage. The value is internal and is not part of the DTA wire projection.
+
+Credential resolution uses the presented token/client to locate a realm-scoped session and then loads its stable account id, checking generation, exact uid and account state. The DTA credential still carries no provider. Explicit directory lookups use `findByUid(uid, provider)`; the one-argument shorthand means the email provider. Apply `002-credential-lookup-{postgresql,mysql}.sql` to index realm/client candidate resolution in existing databases. Unknown sign-in attempts keep the admission lock without sending a fictitious id to the account adapter.
+
+An immediate uid change in rotation mode reissues the retained client credential inside the account mutation transaction, clearing prior token hashes and returning the new uid/token together. It emits a normal credential response even when request authentication was a batch result. Ordinary batch responses still cannot write the auth cookie; rotation-disabled responses retain their presented token.

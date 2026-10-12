@@ -115,7 +115,9 @@ public final class PasswordService {
                                     settings.requireClientPasswordResetToken()
                                             ? null
                                             : sessions.issueLocked(
-                                                    signIn.subject(current), Tokens.client());
+                                                    signIn.subject(current),
+                                                    Tokens.client(),
+                                                    current.generation());
                             return new ResetResult(current, issued);
                         });
         var query = new LinkedHashMap<String, String>();
@@ -152,6 +154,7 @@ public final class PasswordService {
                         current =
                                 accounts.lock(identity.id())
                                         .orElseThrow(() -> new DtaFailure(401, "Unauthorized"));
+                        settings.requireCurrentAccount(identity, current);
                     }
                     validate(current, input);
                     var changes = new LinkedHashMap<String, Object>();
