@@ -122,17 +122,9 @@ public final class SignInService {
         try {
             checkActive(current, now);
         } catch (DtaFailure inactive) {
-            return new Attempt(
-                    null,
-                    inactive,
-                    null,
-                    current.locked(settings, now)
-                            ? new LockedException("Account locked")
-                            : new DisabledException("Account inactive"));
+            return new Attempt(null, inactive, null, inactiveReason(current, now));
         }
-        if (!matches
-                || !verified.equals(current.getPassword())
-                || !candidate.generation().equals(current.generation())) {
+        if (!credentialsMatch(candidate, current, verified, matches)) {
             var delivery = settings.lockable() ? activation.failedLocked(current) : null;
             return new Attempt(null, new DtaFailure(401, INVALID), delivery);
         }
@@ -145,6 +137,19 @@ public final class SignInService {
                                 subject(current), Tokens.client(), current.generation())),
                 null,
                 null);
+    }
+
+    private AuthenticationException inactiveReason(OgiriAccount account, long now) {
+        return account.locked(settings, now)
+                ? new LockedException("Account locked")
+                : new DisabledException("Account inactive");
+    }
+
+    private static boolean credentialsMatch(
+            OgiriAccount candidate, OgiriAccount current, String verified, boolean matches) {
+        return matches
+                && verified.equals(current.getPassword())
+                && candidate.generation().equals(current.generation());
     }
 
     private OgiriAccount clearExpiredLock(OgiriAccount account, long now) {
