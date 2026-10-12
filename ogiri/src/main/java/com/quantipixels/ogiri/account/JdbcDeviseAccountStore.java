@@ -56,8 +56,8 @@ public final class JdbcDeviseAccountStore implements AccountStore {
     }
 
     @Override
-    public Optional<OgiriAccount> findByUid(String uid) {
-        return select("uid = ?", uid);
+    public Optional<OgiriAccount> findByUid(String uid, String provider) {
+        return select("uid = ? AND provider = ?", uid, provider);
     }
 
     @Override
@@ -83,8 +83,8 @@ public final class JdbcDeviseAccountStore implements AccountStore {
         return select(column + " = ?", digest);
     }
 
-    private Optional<OgiriAccount> select(String where, Object value) {
-        return jdbc.query("SELECT * FROM " + table + " WHERE " + where, this::row, value).stream()
+    private Optional<OgiriAccount> select(String where, Object... values) {
+        return jdbc.query("SELECT * FROM " + table + " WHERE " + where, this::row, values).stream()
                 .findFirst();
     }
 

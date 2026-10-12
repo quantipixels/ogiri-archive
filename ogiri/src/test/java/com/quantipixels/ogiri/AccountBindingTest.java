@@ -152,6 +152,64 @@ class AccountBindingTest {
         assertFalse(replacement.view(false).containsKey("ogiri_generation"));
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "false,false",
+        "false,true",
+        "true,false",
+        "true,true"
+    })
+    void sameUidAcrossProvidersResolvesThePresentedSession(boolean rotate, boolean oauthFirst)
+            throws Exception {
+        create("first@example.test");
+        create("second@example.test");
+        var first =
+                tx.write(
+                        () ->
+                                accounts.update(
+                                        "1",
+                                        Map.of(
+                                                "uid",
+                                                "shared@example.test",
+                                                "provider",
+                                                oauthFirst ? "github" : "email")));
+        var second =
+                tx.write(
+                        () ->
+                                accounts.update(
+                                        "2",
+                                        Map.of(
+                                                "uid",
+                                                "shared@example.test",
+                                                "provider",
+                                                oauthFirst ? "email" : "github")));
+        assertEquals(
+                oauthFirst ? second.id() : first.id(),
+                accounts.findByUid("shared@example.test", "email").orElseThrow().id());
+        assertEquals(
+                oauthFirst ? first.id() : second.id(),
+                accounts.findByUid("shared@example.test", "github").orElseThrow().id());
+        var provider = provider(rotate);
+        for (var account : List.of(first, second)) {
+            var issued =
+                    tx.write(
+                            () -> {
+                                tx.lock(settings.subject(account));
+                                accounts.lock(account.id());
+                                return sessions.issueLocked(
+                                        settings.subject(account),
+                                        "same-client",
+                                        account.generation());
+                            });
+            assertEquals(
+                    account.id(),
+                    authenticate(provider, account.uid(), issued).getPrincipal().id());
+            assertThrows(
+                    BadCredentialsException.class,
+                    () -> authenticate(provider, "SHARED@example.test", issued));
+        }
+    }
+
     private OgiriAuthentication authenticate(
             OgiriTokenAuthenticationProvider provider, String uid, IssuedSession issued) {
         return (OgiriAuthentication)

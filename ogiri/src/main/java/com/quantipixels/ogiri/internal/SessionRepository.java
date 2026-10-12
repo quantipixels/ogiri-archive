@@ -158,6 +158,27 @@ public final class SessionRepository implements com.quantipixels.ogiri.JdbcSessi
                 .findFirst();
     }
 
+    /**
+     * Candidate only: account binding and authoritative token validation follow under auth locks.
+     */
+    public Optional<Session> resolve(String realm, String client, String token, boolean rotating) {
+        byte[] digest = Tokens.digest(token);
+        if (digest == null || client.length() > 64) return Optional.empty();
+        var matches =
+                jdbc.query(
+                        "SELECT "
+                                + COLUMNS
+                                + " FROM ogiri_sessions WHERE realm = ? AND tenant_id = '' AND client = ? AND "
+                                + (rotating
+                                        ? "(token_hash = ? OR previous_token_hash = ? OR last_token_hash = ?)"
+                                        : "token_hash = ?"),
+                        SessionRepository::row,
+                        rotating
+                                ? new Object[] {realm, client, digest, digest, digest}
+                                : new Object[] {realm, client, digest});
+        return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
     public boolean boundTo(Subject subject, String client, String generation) {
         return jdbc
                 .queryForList(

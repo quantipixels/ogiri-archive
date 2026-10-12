@@ -6,7 +6,14 @@ import java.util.Optional;
 
 /** Writes participate in the auth coordinator's transaction and use the same DataSource. */
 public interface AccountStore {
-    Optional<OgiriAccount> findByUid(String uid);
+    /**
+     * Email-provider shorthand. Token authentication resolves the stable session subject instead.
+     */
+    default Optional<OgiriAccount> findByUid(String uid) {
+        return findByUid(uid, "email");
+    }
+
+    Optional<OgiriAccount> findByUid(String uid, String provider);
 
     Optional<OgiriAccount> findByEmail(String email);
 

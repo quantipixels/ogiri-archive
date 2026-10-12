@@ -52,7 +52,6 @@ public final class SignInService {
             transactions.write(
                     () -> {
                         transactions.lock(new Subject(settings.realm(), "", "__ogiri_missing__"));
-                        accounts.lock("-1");
                         return null;
                     });
             throw new DtaFailure(401, INVALID);

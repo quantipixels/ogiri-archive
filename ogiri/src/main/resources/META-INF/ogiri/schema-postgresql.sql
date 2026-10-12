@@ -19,3 +19,4 @@ CREATE TABLE ogiri_sessions (
     CONSTRAINT ogiri_sessions_client UNIQUE (realm, tenant_id, subject_id, client)
 );
 CREATE INDEX ogiri_sessions_expiry ON ogiri_sessions (expires_at, id);
+CREATE INDEX ogiri_sessions_credential_lookup ON ogiri_sessions (realm, client);
