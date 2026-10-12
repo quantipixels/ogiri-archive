@@ -3,12 +3,16 @@ package com.quantipixels.ogiri.internal;
 
 import com.quantipixels.ogiri.DtaFailure;
 import com.quantipixels.ogiri.mail.OgiriMailer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 /** Receipts convey AFTER_COMMIT delivery failure without rolling back committed credentials. */
 public final class MailDispatcher {
+    private static final Logger LOG = LoggerFactory.getLogger(MailDispatcher.class);
+
     public enum Kind {
         RESET,
         CONFIRMATION,
@@ -54,8 +58,10 @@ public final class MailDispatcher {
             }
             intent.receipt().delivered = true;
         } catch (Exception failure) {
-            org.apache.commons.logging.LogFactory.getLog(MailDispatcher.class)
-                    .warn("Ogiri mail delivery failed (" + intent.kind() + ")");
+            LOG.warn(
+                    "Ogiri mail delivery failed ({})",
+                    intent.kind(),
+                    FailureDiagnostics.redacted(failure));
         }
     }
 }

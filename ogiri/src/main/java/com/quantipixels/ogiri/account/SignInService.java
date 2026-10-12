@@ -8,9 +8,35 @@ import com.quantipixels.ogiri.internal.AuthTransactions;
 import com.quantipixels.ogiri.internal.SessionRepository;
 import com.quantipixels.ogiri.internal.Tokens;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.AuthenticationEventPublisher;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DefaultAuthenticationEventPublisher;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 
 /** Verifies outside locks, then fences the verified hash under subject/account locks. */
 public final class SignInService {
+    private static final Logger LOG = LoggerFactory.getLogger(SignInService.class);
+    private AuthenticationEventPublisher events = new DefaultAuthenticationEventPublisher();
+
+    public void setAuthenticationEventPublisher(AuthenticationEventPublisher events) {
+        this.events = java.util.Objects.requireNonNull(events);
+    }
+
+    private Authentication eventAuthentication() {
+        return UsernamePasswordAuthenticationToken.unauthenticated("ogiri", null);
+    }
+
+    private void failed(AuthenticationException failure) {
+        LOG.info("Ogiri sign-in failed: {}", failure.getClass().getSimpleName());
+        events.publishAuthenticationFailure(failure, eventAuthentication());
+    }
+
     public static final String INVALID = "Invalid login credentials. Please try again.";
     private final AccountStore accounts;
     private final AuthTransactions transactions;
@@ -55,17 +81,30 @@ public final class SignInService {
                         accounts.lock("-1");
                         return null;
                     });
+            failed(new BadCredentialsException("Invalid credentials"));
             throw new DtaFailure(401, INVALID);
         }
         OgiriAccount candidate = found.orElseThrow();
         var attempt = transactions.write(() -> attempt(candidate, verified, matches));
+        if (attempt.failure() != null) failed(attempt.reason());
+        else
+            events.publishAuthenticationSuccess(
+                    UsernamePasswordAuthenticationToken.authenticated(
+                            "ogiri", null, java.util.List.of()));
         if (attempt.delivery() != null) attempt.delivery().verify(settings.paranoid());
         if (attempt.failure() != null) throw attempt.failure();
         return attempt.result();
     }
 
     private record Attempt(
-            Result result, DtaFailure failure, ActivationService.Delivery delivery) {}
+            Result result,
+            DtaFailure failure,
+            ActivationService.Delivery delivery,
+            AuthenticationException reason) {
+        Attempt(Result result, DtaFailure failure, ActivationService.Delivery delivery) {
+            this(result, failure, delivery, new BadCredentialsException("Invalid credentials"));
+        }
+    }
 
     private Attempt attempt(OgiriAccount candidate, String verified, boolean matches) {
         transactions.lock(subject(candidate));
@@ -77,7 +116,13 @@ public final class SignInService {
         try {
             checkActive(current, now);
         } catch (DtaFailure inactive) {
-            return new Attempt(null, inactive, null);
+            return new Attempt(
+                    null,
+                    inactive,
+                    null,
+                    current.locked(settings, now)
+                            ? new LockedException("Account locked")
+                            : new DisabledException("Account inactive"));
         }
         if (!matches || !verified.equals(current.getPassword())) {
             var delivery = settings.lockable() ? activation.failedLocked(current) : null;

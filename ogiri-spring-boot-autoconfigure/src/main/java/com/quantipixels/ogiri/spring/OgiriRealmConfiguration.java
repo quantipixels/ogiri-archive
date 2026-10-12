@@ -50,7 +50,8 @@ public class OgiriRealmConfiguration {
             OgiriAuthorities authorities,
             AccountValidator validator,
             MailDispatcher mail,
-            ApplicationContext context) {
+            ApplicationContext context,
+            org.springframework.security.authentication.AuthenticationEventPublisher events) {
         var mounts = new ArrayList<Mount>();
         var tables = new java.util.HashSet<String>();
         tables.add(properties.account().table().toLowerCase(java.util.Locale.ROOT));
@@ -99,6 +100,7 @@ public class OgiriRealmConfiguration {
             var signin =
                     new SignInService(
                             accounts, transactions, sessions, settings, encoder, activation);
+            signin.setAuthenticationEventPublisher(events);
             var registration =
                     new RegistrationService(
                             accounts,
@@ -120,7 +122,14 @@ public class OgiriRealmConfiguration {
                             validator,
                             mail,
                             links);
-            var runtime = new OgiriRuntime(settings, transactions, sessions, accounts, signin);
+            var manager =
+                    new org.springframework.security.authentication.ProviderManager(
+                            new com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider(
+                                    accounts, transactions, sessions, settings));
+            manager.setAuthenticationEventPublisher(new RedactedAuthenticationEvents(events));
+            var runtime =
+                    new OgiriRuntime(
+                            settings, transactions, sessions, accounts, signin, request -> manager);
             mounts.add(
                     new Mount(
                             runtime,

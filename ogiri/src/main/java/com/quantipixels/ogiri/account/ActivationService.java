@@ -11,9 +11,25 @@ import com.quantipixels.ogiri.internal.Tokens;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /** Confirmation and lockout transitions share the account admission fence. */
 public final class ActivationService {
+    private static final Logger LOG = LoggerFactory.getLogger(ActivationService.class);
+
+    private static void logAfterCommit(String message) {
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        LOG.info(message);
+                    }
+                });
+    }
+
     private final AccountStore accounts;
     private final AuthTransactions transactions;
     private final SessionRepository sessions;
@@ -161,6 +177,7 @@ public final class ActivationService {
         changes.put("failed_attempts", attempts);
         if (attempts >= settings.maximumAttempts()) {
             changes.put("locked_at", Instant.ofEpochMilli(transactions.now()));
+            logAfterCommit("Ogiri account locked");
             sessions.revokeAllLocked(subject(current));
         }
         current = accounts.update(current.id(), changes);
@@ -175,6 +192,7 @@ public final class ActivationService {
     }
 
     public OgiriAccount clearLockLocked(OgiriAccount current) {
+        if (current.column("locked_at") != null) logAfterCommit("Ogiri account unlocked");
         var changes = new LinkedHashMap<String, Object>();
         changes.put("failed_attempts", 0);
         changes.put("locked_at", null);

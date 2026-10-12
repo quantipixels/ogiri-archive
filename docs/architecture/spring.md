@@ -4,7 +4,7 @@ Ogiri implements `contracts/PROTOCOL.md` revision 3.3. The Spring decision selec
 
 ## Modules and ownership
 
-* `ogiri`: session storage and transaction coordination, the account SPI and Devise JDBC implementation, account workflows, security converter/provider/filter/configurer, MVC endpoints, replaceable mail, commit events and observations. Features own their internal helpers; production code has no dependency on Boot.
+* `ogiri`: session storage and transaction coordination, the account SPI and Devise JDBC implementation, account workflows, security converter/provider/filter/configurer, MVC endpoints, replaceable mail, commit events and operational logging. Features own their internal helpers; production code has no dependency on Boot.
 * `ogiri-spring-boot-autoconfigure`: configuration properties, conditions, dependency validation and bean assembly only. It backs off on typed public seams and any application security chain.
 * `ogiri-spring-boot-starter`: dependency-only starter; no implementation classes.
 * `examples/spring-app`: public-API adoption, environment configuration, fixture role mapping and protected `/me` and `/admin` application endpoints.
@@ -13,7 +13,7 @@ Ogiri implements `contracts/PROTOCOL.md` revision 3.3. The Spring decision selec
 
 Add `com.quantipixels.ogiri:ogiri-spring-boot-starter:0.0.1`, configure the application DataSource, and apply the packaged `META-INF/ogiri/ogiri-<engine>.sql` migration. Apply `users-<engine>.sql` only for a new application; existing Devise tables remain application-owned. Ogiri never runs DDL at startup.
 
-The default `AccountStore` uses the DTA users table. Replace it for another model. An `OgiriAuthorities` bean maps account attributes to Spring authorities; the authenticated principal is `OgiriAccount implements UserDetails`. Applications use `@AuthenticationPrincipal OgiriAccount`, `Authentication` and `@PreAuthorize` normally. Replace `OgiriMailer` for content or delivery. Public events are published after commit with no secrets; Micrometer observations use bounded operation/outcome tags.
+The default `AccountStore` uses the DTA users table. Replace it for another model. An `OgiriAuthorities` bean maps account attributes to Spring authorities; the authenticated principal is `OgiriAccount implements UserDetails`. Applications use `@AuthenticationPrincipal OgiriAccount`, `Authentication` and `@PreAuthorize` normally. Replace `OgiriMailer` for content or delivery. Standard authentication events carry redacted identities; see Operations below for logging and scheduling.
 
 A host security chain opts in with `http.with(OgiriConfigurer.ogiri(realms), configurer -> {})`; without a host chain Boot assembles a stateless default. The configurer installs the DTA converter/provider/filter, request-attribute context repository, DTA error handlers and commit-time header writer. `OgiriConfigurer.exposeHeaders(cors)` exposes DTA headers for browser callers. Root `ogiri.*` settings configure the users realm; `ogiri.realms.<name>.*` inherits defaults for additional mounts. Endpoint registration can be disabled independently.
 
@@ -49,7 +49,7 @@ Registration and account updates use Jakarta Bean Validation through Spring Vali
 
 The default provider is assembled inside Ogiri's typed resolver and dedicated ProviderManager. The OgiriPasswords wrapper keeps its encoder out of Spring's global PasswordEncoder selection; host Basic authentication retains its own account store and encoder. Applications with multiple PlatformTransactionManager beans must explicitly wire the matching Ogiri coordinator; ambiguity fails startup. An application-owned SecurityFilterChain must opt into `http.with(OgiriConfigurer.ogiri(realms), configurer -> {})` and choose its endpoint authorization rules. Ogiri does not replace that chain.
 
-Subject, session value records, the injectable JdbcSessions interface and OgiriRuntime are intentional public integration APIs. JdbcSessions exposes only independent issue/authenticate/list/revoke/revokeAll/cleanup operations. SessionRepository, AuthTransactions, Tokens and Database live under internal; atomic locked methods and the JDBC accessor are infrastructure wiring, not adopter APIs. DtaAuthenticationConverter and OgiriEndpoints live under their feature internal packages. ModuleBoundariesTest verifies feature cycles and internal exposure. MVC's current-identity helper is private. Rotation, lockout, confirmation and scheduled cleanup configuration that needs unfinished behavior fails startup until its implementation slice removes the respective guard.
+Subject, session value records, the injectable JdbcSessions interface and OgiriRuntime are intentional public integration APIs. JdbcSessions exposes only independent issue/authenticate/list/revoke/revokeAll/cleanup operations. SessionRepository, AuthTransactions, Tokens and Database live under internal; atomic locked methods and the JDBC accessor are infrastructure wiring, not adopter APIs. DtaAuthenticationConverter and OgiriEndpoints live under their feature internal packages. ModuleBoundariesTest verifies feature cycles and internal exposure. MVC's current-identity helper is private. Rotation, lockout and confirmation are implemented. Cleanup scheduling is opt-in (see below).
 
 ## Password and mail checkpoint
 
@@ -72,3 +72,29 @@ Additional JDBC realms must resolve to distinct account tables, including the ro
 Ogiri's resolver bean is named and qualified `ogiriAuthenticationManagers`. A host AuthenticationManagerResolver does not replace it; adopters replacing Ogiri's resolver must use that bean name/qualifier. The dependency-only starter is a conventional JAR, and the installed-artifact consumer uses the README dependency verbatim.
 
 Cookie-mode realm limitation: XSRF-TOKEN and X-XSRF-TOKEN are shared names. Use the same cookie path (normally /) for every cookie-enabled realm and distinct auth cookie names. Different realm paths can send multiple XSRF-TOKEN cookies; Spring reads the first and the browser may echo another, causing a 403. Distinct auth cookie paths alone do not isolate CSRF tokens; separate realm CSRF names are not supported.
+
+## Operations
+
+Ogiri uses SLF4J for failed sign-ins, committed locks/unlocks and infrastructure failures.
+Logs omit account identifiers, passwords and tokens. Infrastructure logs preserve the outer
+exception type and stack but redact messages, causes and suppressed exceptions, which may
+contain SQL values or mail content.
+
+Boot wiring uses the application `AuthenticationEventPublisher`, or supplies Spring Security's
+`DefaultAuthenticationEventPublisher`. Password sign-ins publish standard success, bad-credentials,
+locked and disabled events after their transaction completes. Token authentication publishes
+standard success/bad-credentials events through its ProviderManager, for root and named realms.
+Event authentication carries the fixed principal `ogiri` and no credentials/account columns.
+Applications can consume these with `@EventListener`. No custom authentication event types are used.
+Manually constructed SignInService instances can set a publisher explicitly. Lock/unlock logs
+are post-commit; no standard Spring Security unlock event exists, so no custom event is added.
+The unused direct Micrometer dependency was removed: applications can derive their own metrics
+from these standard events without Ogiri imposing another instrumentation surface.
+
+Set `ogiri.cleanup.interval=1h` to enable one dedicated scheduler, with
+`ogiri.cleanup.batch-size=1000` (valid range 1–10000). Each fixed-delay run deletes at most one
+batch from the shared session table across all realms; configure scheduling at the root.
+The first run waits one interval, and context shutdown stops the scheduler. `FOR UPDATE SKIP LOCKED`
+selects expired rows using database time, safely sharing work across instances on PostgreSQL/MySQL.
+Live sessions and persistent subject-lock rows are retained. Authentication enforces expiry even
+when scheduling is disabled or a cleanup run fails; failed store operations retry next interval.
