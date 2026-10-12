@@ -78,7 +78,7 @@ def staged():
                 if b"\0" not in data and data and not data.endswith(b"\n"):
                     raise ValueError(f"formatter: {path}: missing final newline")
             lint(changed)
-            java_files = [str(p) for p in changed if p.suffix == ".java" and p.as_posix().startswith(("ogiri/", "ogiri-spring-boot-starter/", "examples/spring-app/"))]
+            java_files = [str(p) for p in changed if p.suffix == ".java" and p.as_posix().startswith(("ogiri/", "ogiri-spring-boot-autoconfigure/", "ogiri-spring-boot-starter/", "examples/spring-app/"))]
             if java_files:
                 run("bash", original / "scripts/platform/java.sh", "staged", *java_files)
         finally:
@@ -96,7 +96,7 @@ def paths():
         changed = git_paths("diff", "--name-only", base, "HEAD")
     common = {"mise.toml", "lefthook.yml", ".gitignore"}
     shared = changed is None or any(p.as_posix() in common or p.as_posix().startswith((".github/", "contracts/", "examples/")) or (p.as_posix().startswith("scripts/") and not p.as_posix().startswith("scripts/platform/")) for p in changed)
-    prefixes = {"java": ("ogiri/", "ogiri-spring-boot-starter/", "scripts/platform/java.sh"), "parity": ("contracts/conformance/", "ogiri/", "ogiri-spring-boot-starter/", "scripts/platform/")}
+    prefixes = {"java": ("ogiri/", "ogiri-spring-boot-autoconfigure/", "ogiri-spring-boot-starter/", "scripts/platform/java.sh"), "parity": ("ogiri/", "ogiri-spring-boot-autoconfigure/", "ogiri-spring-boot-starter/", "scripts/platform/")}
     results = {key: shared or any(p.as_posix().startswith(value) or (key in {"java", "parity"} and p.as_posix() == "pom.xml") for p in (changed or [])) for key, value in prefixes.items()}
     output = "".join(f"{key}={str(value).lower()}\n" for key, value in results.items())
     print(output, end="")

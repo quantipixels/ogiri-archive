@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: Apache-2.0
--- Development fixture for the sample apps and the parity suite. Apply after contracts/schema/users-<engine>.sql.
+-- Development fixture for the Spring example and Spring HTTP conformance. Apply after contracts/schema/users-<engine>.sql.
 -- Works on PostgreSQL and MySQL 8. Every password is "test-password", hashed as Devise does (bcrypt $2a$).
 -- role is a sample-app column (not part of DTA) used to demonstrate authorization.
 ALTER TABLE users ADD COLUMN role varchar(32) NOT NULL DEFAULT 'user';

@@ -4,7 +4,7 @@ java = "temurin-17.0.17+10"
 maven = "3.9.16"
 python = "3.13.16"
 uv = "0.13.0"
-node = "24.21.0"            # LTS; used by the parity suite's JavaScript client
+node = "24.21.0"            # LTS; used by the Spring HTTP conformance JavaScript client
 actionlint = "1.7.12"
 zizmor = "1.30.1"
 gitleaks = "8.30.1"
@@ -23,7 +23,7 @@ run = [
 ]
 
 [tasks."check:full"]
-description = "Repository, database, consumer, release, SBOM and parity checks"
+description = "Repository, database, consumer, release, SBOM and Spring HTTP conformance checks"
 run = [
   "mise run check:repo",
   "mise run check:java:full",
@@ -54,8 +54,8 @@ run = "bash scripts/platform/java.sh release"
 [tasks."check:java:benchmark"]
 run = "bash scripts/platform/java.sh benchmark"
 
-
 [tasks."check:parity"]
+description = "Spring HTTP conformance"
 run = "bash scripts/platform/parity.sh full"
 
 [tasks.fix]
