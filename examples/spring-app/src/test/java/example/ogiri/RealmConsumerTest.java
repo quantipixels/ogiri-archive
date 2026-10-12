@@ -39,6 +39,9 @@ class RealmConsumerTest {
 
     @BeforeEach
     void schema() {
+        // Demo startup and the admins fixture reuse account IDs across test contexts.
+        jdbc.execute("TRUNCATE TABLE ogiri_sessions");
+        jdbc.execute("TRUNCATE TABLE ogiri_subject_locks");
         jdbc.execute("DROP TABLE IF EXISTS admins");
         if ("mysql".equals(System.getenv("OGIRI_TEST_DATABASE")))
             jdbc.execute("CREATE TABLE admins LIKE users");
