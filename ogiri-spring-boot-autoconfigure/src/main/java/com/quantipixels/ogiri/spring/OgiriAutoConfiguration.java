@@ -291,7 +291,8 @@ public final class OgiriAutoConfiguration {
                                         .OgiriTokenAuthenticationProvider(
                                         accounts, transactions, sessions, settings));
         var manager = new org.springframework.security.authentication.ProviderManager(provider);
-        manager.setAuthenticationEventPublisher(new RedactedAuthenticationEvents(events));
+        manager.setAuthenticationEventPublisher(
+                new RedactedAuthenticationEvents(events, settings.realm()));
         return request -> manager;
     }
 

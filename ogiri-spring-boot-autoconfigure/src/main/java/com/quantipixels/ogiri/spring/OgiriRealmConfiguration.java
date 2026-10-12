@@ -126,7 +126,8 @@ public class OgiriRealmConfiguration {
                     new org.springframework.security.authentication.ProviderManager(
                             new com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider(
                                     accounts, transactions, sessions, settings));
-            manager.setAuthenticationEventPublisher(new RedactedAuthenticationEvents(events));
+            manager.setAuthenticationEventPublisher(
+                    new RedactedAuthenticationEvents(events, settings.realm()));
             var runtime =
                     new OgiriRuntime(
                             settings, transactions, sessions, accounts, signin, request -> manager);

@@ -13,7 +13,7 @@ Ogiri implements `contracts/PROTOCOL.md` revision 3.3. The Spring decision selec
 
 Add `com.quantipixels.ogiri:ogiri-spring-boot-starter:0.0.1`, configure the application DataSource, and apply the packaged `META-INF/ogiri/ogiri-<engine>.sql` migration. Apply `users-<engine>.sql` only for a new application; existing Devise tables remain application-owned. Ogiri never runs DDL at startup.
 
-The default `AccountStore` uses the DTA users table. Replace it for another model. An `OgiriAuthorities` bean maps account attributes to Spring authorities; the authenticated principal is `OgiriAccount implements UserDetails`. Applications use `@AuthenticationPrincipal OgiriAccount`, `Authentication` and `@PreAuthorize` normally. Replace `OgiriMailer` for content or delivery. Standard authentication events carry redacted identities; see Operations below for logging and scheduling.
+The default `AccountStore` uses the DTA users table. Replace it for another model. An `OgiriAuthorities` bean maps account attributes to Spring authorities; the authenticated principal is `OgiriAccount implements UserDetails`. Applications use `@AuthenticationPrincipal OgiriAccount`, `Authentication` and `@PreAuthorize` normally. Replace `OgiriMailer` for content or delivery. Standard authentication events carry realm-qualified identities; see Operations below for logging and scheduling.
 
 A host security chain opts in with `http.with(OgiriConfigurer.ogiri(realms), configurer -> {})`; without a host chain Boot assembles a stateless default. The configurer installs the DTA converter/provider/filter, request-attribute context repository, DTA error handlers and commit-time header writer. `OgiriConfigurer.exposeHeaders(cors)` exposes DTA headers for browser callers. Root `ogiri.*` settings configure the users realm; `ogiri.realms.<name>.*` inherits defaults for additional mounts. Endpoint registration can be disabled independently.
 
@@ -84,7 +84,16 @@ Boot wiring uses the application `AuthenticationEventPublisher`, or supplies Spr
 `DefaultAuthenticationEventPublisher`. Password sign-ins publish standard success, bad-credentials,
 locked and disabled events after their transaction completes. Token authentication publishes
 standard success/bad-credentials events through its ProviderManager, for root and named realms.
-Event authentication carries the fixed principal `ogiri` and no credentials/account columns.
+Event authentication carries a string principal `realm:uid`: successes use the account's uid;
+failures use the attempted uid with surrounding whitespace stripped and lowercased using
+`Locale.ROOT` (including unknown accounts). Credentials and details are null; tokens, passwords,
+hashes, client ids and all other account columns are excluded. The token-event wrapper is
+retained to strip the DTA credential and the full account principal before publication.
+ProviderManager intentionally publishes a success for every successful token validation,
+normally once per authenticated request, as well as the separate password sign-in success.
+This preserves Spring's standard authentication activity signal for auditing; listeners must
+not count every success as a new sign-in or session. These payloads contain account identities
+and applications should handle them as personal data.
 Applications can consume these with `@EventListener`. No custom authentication event types are used.
 Manually constructed SignInService instances can set a publisher explicitly. Lock/unlock logs
 are post-commit; no standard Spring Security unlock event exists, so no custom event is added.

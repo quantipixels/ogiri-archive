@@ -100,7 +100,7 @@ class OperationsTest {
                                                                     "updated_at",
                                                                     Instant.now())));
                             var signIn = context.getBean(SignInService.class);
-                            signIn.signIn("secret@example.test", "private-password");
+                            var login = signIn.signIn("secret@example.test", "private-password");
                             assertThatThrownBy(
                                             () ->
                                                     signIn.signIn(
@@ -134,7 +134,14 @@ class OperationsTest {
                                                                         .getCredentials())
                                                         .isNull();
                                                 assertThat(event.getAuthentication().getName())
-                                                        .isEqualTo("ogiri");
+                                                        .isEqualTo("users:secret@example.test");
+                                                assertSafe(
+                                                        event,
+                                                        "private-password",
+                                                        "wrong-secret",
+                                                        account.getPassword(),
+                                                        login.issued().token(),
+                                                        login.issued().session().client());
                                             });
                             assertThat(output)
                                     .contains(
@@ -185,13 +192,21 @@ class OperationsTest {
                                     .isInstanceOf(DtaFailure.class);
                             assertThat(events)
                                     .singleElement()
-                                    .isInstanceOf(AuthenticationFailureDisabledEvent.class);
+                                    .isInstanceOf(AuthenticationFailureDisabledEvent.class)
+                                    .satisfies(
+                                            event -> {
+                                                assertThat(event.getAuthentication().getPrincipal())
+                                                        .isEqualTo("users:inactive@example.test");
+                                                assertSafe(event, "secret");
+                                            });
                         });
     }
 
-    @Test
-    void tokenManagerPublishesRedactedSuccessAndFailure() {
-        runner().run(
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"users", "admins"})
+    void tokenManagerPublishesRedactedSuccessAndFailure(String realm) {
+        runner().withPropertyValues("ogiri.realm=" + realm)
+                .run(
                         context -> {
                             var runtime =
                                     context.getBean(
@@ -223,12 +238,32 @@ class OperationsTest {
                             var login =
                                     runtime.signIn()
                                             .signIn("token@example.test", "private-password");
+                            assertThat(events)
+                                    .singleElement()
+                                    .satisfies(
+                                            event -> {
+                                                assertThat(event.getAuthentication().getPrincipal())
+                                                        .isEqualTo(realm + ":token@example.test");
+                                                assertSafe(
+                                                        event,
+                                                        "private-password",
+                                                        login.account().getPassword(),
+                                                        login.issued().token(),
+                                                        login.issued().session().client());
+                                            });
                             events.clear();
                             var manager =
                                     runtime.authenticationManagers()
                                             .resolve(
                                                     new org.springframework.mock.web
                                                             .MockHttpServletRequest());
+                            manager.authenticate(
+                                    new com.quantipixels.ogiri.security.DtaAuthenticationToken(
+                                            new com.quantipixels.ogiri.security.DtaCredential(
+                                                    login.account().uid(),
+                                                    login.issued().session().client(),
+                                                    login.issued().token(),
+                                                    false)));
                             manager.authenticate(
                                     new com.quantipixels.ogiri.security.DtaAuthenticationToken(
                                             new com.quantipixels.ogiri.security.DtaCredential(
@@ -243,7 +278,7 @@ class OperationsTest {
                                                                     .DtaAuthenticationToken(
                                                                     new com.quantipixels.ogiri
                                                                             .security.DtaCredential(
-                                                                            login.account().uid(),
+                                                                            "  TOKEN@example.test  ",
                                                                             login.issued()
                                                                                     .session()
                                                                                     .client(),
@@ -256,6 +291,7 @@ class OperationsTest {
                                     .extracting(Object::getClass)
                                     .containsExactly(
                                             AuthenticationSuccessEvent.class,
+                                            AuthenticationSuccessEvent.class,
                                             AuthenticationFailureBadCredentialsEvent.class);
                             assertThat(events)
                                     .allSatisfy(
@@ -265,9 +301,49 @@ class OperationsTest {
                                                                         .getCredentials())
                                                         .isNull();
                                                 assertThat(event.getAuthentication().getPrincipal())
-                                                        .isEqualTo("ogiri");
+                                                        .isEqualTo(realm + ":token@example.test");
+                                                assertSafe(
+                                                        event,
+                                                        "private-password",
+                                                        "invalid-secret",
+                                                        login.account().getPassword(),
+                                                        login.issued().token(),
+                                                        login.issued().session().client());
                                             });
                         });
+    }
+
+    @Test
+    void unknownSignInPublishesNormalizedAttemptedIdentity() {
+        runner().run(
+                        context -> {
+                            assertThatThrownBy(
+                                            () ->
+                                                    context.getBean(SignInService.class)
+                                                            .signIn(
+                                                                    "  UNKNOWN@example.test  ",
+                                                                    "missing-password"))
+                                    .isInstanceOf(DtaFailure.class);
+                            assertThat(events)
+                                    .singleElement()
+                                    .satisfies(
+                                            event -> {
+                                                assertThat(event)
+                                                        .isInstanceOf(
+                                                                AuthenticationFailureBadCredentialsEvent
+                                                                        .class);
+                                                assertThat(event.getAuthentication().getPrincipal())
+                                                        .isEqualTo("users:unknown@example.test");
+                                                assertSafe(event, "missing-password");
+                                            });
+                        });
+    }
+
+    private static void assertSafe(AbstractAuthenticationEvent event, String... secrets) {
+        assertThat(event.getAuthentication().getCredentials()).isNull();
+        assertThat(event.getAuthentication().getDetails()).isNull();
+        assertThat(event.toString()).doesNotContain(secrets);
+        assertThat(event.getAuthentication().toString()).doesNotContain(secrets);
     }
 
     @Test

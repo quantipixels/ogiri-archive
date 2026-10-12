@@ -28,13 +28,18 @@ public final class SignInService {
         this.events = java.util.Objects.requireNonNull(events);
     }
 
-    private Authentication eventAuthentication() {
-        return UsernamePasswordAuthenticationToken.unauthenticated("ogiri", null);
+    private Authentication eventAuthentication(String uid) {
+        return UsernamePasswordAuthenticationToken.unauthenticated(
+                settings.realm() + ":" + uid, null);
     }
 
-    private void failed(AuthenticationException failure) {
+    private void failed(AuthenticationException failure, String attemptedUid) {
         LOG.info("Ogiri sign-in failed: {}", failure.getClass().getSimpleName());
-        events.publishAuthenticationFailure(failure, eventAuthentication());
+        events.publishAuthenticationFailure(
+                failure,
+                eventAuthentication(
+                        JdbcDeviseAccountStore.normalize(
+                                attemptedUid == null ? "" : attemptedUid)));
     }
 
     public static final String INVALID = "Invalid login credentials. Please try again.";
@@ -81,16 +86,18 @@ public final class SignInService {
                         accounts.lock("-1");
                         return null;
                     });
-            failed(new BadCredentialsException("Invalid credentials"));
+            failed(new BadCredentialsException("Invalid credentials"), email);
             throw new DtaFailure(401, INVALID);
         }
         OgiriAccount candidate = found.orElseThrow();
         var attempt = transactions.write(() -> attempt(candidate, verified, matches));
-        if (attempt.failure() != null) failed(attempt.reason());
+        if (attempt.failure() != null) failed(attempt.reason(), email);
         else
             events.publishAuthenticationSuccess(
                     UsernamePasswordAuthenticationToken.authenticated(
-                            "ogiri", null, java.util.List.of()));
+                            settings.realm() + ":" + attempt.result().account().uid(),
+                            null,
+                            java.util.List.of()));
         if (attempt.delivery() != null) attempt.delivery().verify(settings.paranoid());
         if (attempt.failure() != null) throw attempt.failure();
         return attempt.result();
