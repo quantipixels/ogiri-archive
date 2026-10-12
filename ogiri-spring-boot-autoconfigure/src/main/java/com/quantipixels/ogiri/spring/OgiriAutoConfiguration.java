@@ -137,24 +137,8 @@ public final class OgiriAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    SignInService ogiriSignIn(
-            AccountStore accounts,
-            AuthTransactions transactions,
-            SessionRepository sessions,
-            OgiriSettings settings,
-            com.quantipixels.ogiri.account.internal.OgiriPasswords passwords,
-            com.quantipixels.ogiri.account.internal.ActivationService activation,
-            org.springframework.security.authentication.AuthenticationEventPublisher events) {
-        var signIn =
-                new SignInService(
-                        accounts,
-                        transactions,
-                        sessions,
-                        settings,
-                        passwords.encoder(),
-                        activation);
-        signIn.setAuthenticationEventPublisher(events);
-        return signIn;
+    SignInService ogiriSignIn(OgiriRealmConfiguration.RealmFactory.Realm realm) {
+        return realm.runtime().signIn();
     }
 
     @Bean
@@ -173,23 +157,8 @@ public final class OgiriAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     com.quantipixels.ogiri.account.internal.RegistrationService ogiriRegistration(
-            AccountStore accounts,
-            AuthTransactions transactions,
-            SessionRepository sessions,
-            OgiriSettings settings,
-            com.quantipixels.ogiri.account.internal.OgiriPasswords passwords,
-            SignInService signIn,
-            com.quantipixels.ogiri.account.internal.AccountValidator validator,
-            com.quantipixels.ogiri.account.internal.ActivationService activation) {
-        return new com.quantipixels.ogiri.account.internal.RegistrationService(
-                accounts,
-                transactions,
-                sessions,
-                settings,
-                passwords.encoder(),
-                signIn,
-                validator,
-                activation);
+            OgiriRealmConfiguration.RealmFactory.Realm realm) {
+        return realm.registration();
     }
 
     @Bean
@@ -239,38 +208,15 @@ public final class OgiriAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     com.quantipixels.ogiri.account.internal.ActivationService ogiriActivation(
-            AccountStore accounts,
-            AuthTransactions transactions,
-            SessionRepository sessions,
-            OgiriSettings settings,
-            com.quantipixels.ogiri.internal.MailDispatcher mail,
-            com.quantipixels.ogiri.internal.PublicLinks links) {
-        return new com.quantipixels.ogiri.account.internal.ActivationService(
-                accounts, transactions, sessions, settings, mail, links);
+            OgiriRealmConfiguration.RealmFactory.Realm realm) {
+        return realm.activation();
     }
 
     @Bean
     @ConditionalOnMissingBean
     com.quantipixels.ogiri.account.internal.PasswordService ogiriPasswordService(
-            AccountStore accounts,
-            AuthTransactions transactions,
-            SessionRepository sessions,
-            OgiriSettings settings,
-            com.quantipixels.ogiri.account.internal.OgiriPasswords passwords,
-            SignInService signIn,
-            com.quantipixels.ogiri.account.internal.AccountValidator validator,
-            com.quantipixels.ogiri.internal.MailDispatcher mail,
-            com.quantipixels.ogiri.internal.PublicLinks links) {
-        return new com.quantipixels.ogiri.account.internal.PasswordService(
-                accounts,
-                transactions,
-                sessions,
-                settings,
-                passwords.encoder(),
-                signIn,
-                validator,
-                mail,
-                links);
+            OgiriRealmConfiguration.RealmFactory.Realm realm) {
+        return realm.passwords();
     }
 
     @Bean
@@ -302,18 +248,37 @@ public final class OgiriAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean
-    OgiriRuntime ogiriRuntime(
+    OgiriRealmConfiguration.RealmFactory.Realm ogiriDefaultRealm(
             OgiriSettings settings,
             AuthTransactions transactions,
             SessionRepository sessions,
             AccountStore accounts,
-            SignInService signIn,
+            com.quantipixels.ogiri.account.internal.OgiriPasswords encoder,
+            com.quantipixels.ogiri.account.internal.AccountValidator validator,
+            com.quantipixels.ogiri.internal.MailDispatcher mail,
+            com.quantipixels.ogiri.internal.PublicLinks links,
+            org.springframework.security.authentication.AuthenticationEventPublisher events,
             @org.springframework.beans.factory.annotation.Qualifier("ogiriAuthenticationManagers")
                     org.springframework.security.authentication.AuthenticationManagerResolver<
                                     jakarta.servlet.http.HttpServletRequest>
                             managers) {
-        return new OgiriRuntime(settings, transactions, sessions, accounts, signIn, managers);
+        return OgiriRealmConfiguration.RealmFactory.create(
+                settings,
+                accounts,
+                transactions,
+                sessions,
+                encoder.encoder(),
+                validator,
+                mail,
+                links,
+                events,
+                managers);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    OgiriRuntime ogiriRuntime(OgiriRealmConfiguration.RealmFactory.Realm realm) {
+        return realm.runtime();
     }
 
     @Bean
@@ -323,12 +288,8 @@ public final class OgiriAutoConfiguration {
             name = "enabled",
             havingValue = "true",
             matchIfMissing = true)
-    OgiriEndpoints ogiriEndpoints(
-            OgiriRuntime runtime,
-            com.quantipixels.ogiri.account.internal.RegistrationService registration,
-            com.quantipixels.ogiri.account.internal.PasswordService passwords,
-            com.quantipixels.ogiri.account.internal.ActivationService activation) {
-        return new OgiriEndpoints(runtime, registration, passwords, activation);
+    OgiriEndpoints ogiriEndpoints(OgiriRealmConfiguration.RealmFactory.Realm realm) {
+        return realm.endpoints();
     }
 
     @Bean

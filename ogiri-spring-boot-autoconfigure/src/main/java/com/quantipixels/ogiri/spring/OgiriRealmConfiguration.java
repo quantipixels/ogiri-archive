@@ -8,16 +8,19 @@ import com.quantipixels.ogiri.account.internal.AccountValidator;
 import com.quantipixels.ogiri.account.internal.ActivationService;
 import com.quantipixels.ogiri.account.internal.DevisePasswordEncoder;
 import com.quantipixels.ogiri.account.internal.JdbcDeviseAccountStore;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
 import com.quantipixels.ogiri.account.internal.PasswordService;
 import com.quantipixels.ogiri.account.internal.RegistrationService;
 import com.quantipixels.ogiri.account.internal.SignInService;
 import com.quantipixels.ogiri.internal.AuthTransactions;
 import com.quantipixels.ogiri.internal.MailDispatcher;
+import com.quantipixels.ogiri.internal.PublicLinks;
 import com.quantipixels.ogiri.internal.SessionRepository;
 import com.quantipixels.ogiri.security.OgiriRealms;
 import com.quantipixels.ogiri.security.OgiriRuntime;
 import com.quantipixels.ogiri.spring.internal.RedactedAuthenticationEvents;
 import com.quantipixels.ogiri.web.internal.OgiriEndpoints;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
@@ -31,6 +34,8 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.security.authentication.AuthenticationEventPublisher;
+import org.springframework.security.authentication.AuthenticationManagerResolver;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 @Configuration(proxyBeanMethods = false)
@@ -50,7 +55,10 @@ public class OgiriRealmConfiguration {
             AuthTransactions transactions,
             OgiriAuthorities authorities,
             AccountValidator validator,
-            MailDispatcher mail,
+            ObjectProvider<org.springframework.mail.javamail.JavaMailSender> senders,
+            org.springframework.context.MessageSource messages,
+            org.springframework.beans.factory.config.ConfigurableListableBeanFactory beans,
+            org.springframework.context.ApplicationEventPublisher applicationEvents,
             ApplicationContext context,
             org.springframework.security.authentication.AuthenticationEventPublisher events) {
         var mounts = new ArrayList<Mount>();
@@ -71,58 +79,67 @@ public class OgiriRealmConfiguration {
                             .bindOrCreate("", OgiriProperties.class);
             var settings = realm.settings();
             OgiriAutoConfiguration.validateFeatures(realm);
-            String storeName = name + "OgiriAccountStore";
-            if (!context.containsBean(storeName)
-                    && !tables.add(realm.account().table().toLowerCase(java.util.Locale.ROOT))) {
-                throw new IllegalArgumentException(
-                        "Ogiri realms must use distinct account tables; configure ogiri.realms."
-                                + name
-                                + ".account.table or an explicit "
-                                + storeName
-                                + " bean");
-            }
             AccountStore accounts =
-                    context.containsBean(storeName)
-                            ? context.getBean(storeName, AccountStore.class)
-                            : new JdbcDeviseAccountStore(
-                                    transactions,
-                                    realm.account().table(),
-                                    authorities,
-                                    realm.account().columns());
+                    collaborator(
+                            context,
+                            beans,
+                            name,
+                            "OgiriAccountStore",
+                            AccountStore.class,
+                            "ogiriAccountStore",
+                            () -> null);
+            if (accounts == null) {
+                if (!tables.add(realm.account().table().toLowerCase(java.util.Locale.ROOT))) {
+                    throw new IllegalArgumentException(
+                            "Ogiri realms must use distinct account tables; configure ogiri.realms."
+                                    + name
+                                    + ".account.table or an explicit "
+                                    + name
+                                    + "OgiriAccountStore bean");
+                }
+                accounts =
+                        new JdbcDeviseAccountStore(
+                                transactions,
+                                realm.account().table(),
+                                authorities,
+                                realm.account().columns());
+            }
+            var encoder =
+                    collaborator(
+                            context,
+                            beans,
+                            name,
+                            "OgiriPasswordEncoder",
+                            com.quantipixels.ogiri.account.internal.OgiriPasswords.class,
+                            "ogiriPasswordEncoder",
+                            () ->
+                                    new com.quantipixels.ogiri.account.internal.OgiriPasswords(
+                                            new DevisePasswordEncoder(realm.bcryptCost())));
+            var accountValidator =
+                    collaborator(
+                            context,
+                            beans,
+                            name,
+                            "OgiriAccountValidator",
+                            AccountValidator.class,
+                            "ogiriAccountValidator",
+                            () -> validator);
+            var mailer =
+                    collaborator(
+                            context,
+                            beans,
+                            name,
+                            "OgiriMailer",
+                            com.quantipixels.ogiri.mail.OgiriMailer.class,
+                            "ogiriMailer",
+                            () ->
+                                    new com.quantipixels.ogiri.internal.JavaMailOgiriMailer(
+                                            senders.getObject(), messages, realm.mailFrom()));
             var sessions =
                     new SessionRepository(
                             transactions,
                             new SessionPolicy(
                                     settings.tokenLifespan(), settings.maxNumberOfDevices()));
-            var links = OgiriAutoConfiguration.links(realm, environment);
-            var activation =
-                    new ActivationService(accounts, transactions, sessions, settings, mail, links);
-            var encoder = new DevisePasswordEncoder(realm.bcryptCost());
-            var signin =
-                    new SignInService(
-                            accounts, transactions, sessions, settings, encoder, activation);
-            signin.setAuthenticationEventPublisher(events);
-            var registration =
-                    new RegistrationService(
-                            accounts,
-                            transactions,
-                            sessions,
-                            settings,
-                            encoder,
-                            signin,
-                            validator,
-                            activation);
-            var passwords =
-                    new PasswordService(
-                            accounts,
-                            transactions,
-                            sessions,
-                            settings,
-                            encoder,
-                            signin,
-                            validator,
-                            mail,
-                            links);
             var manager =
                     new org.springframework.security.authentication.ProviderManager(
                             new com.quantipixels.ogiri.security.internal
@@ -130,16 +147,45 @@ public class OgiriRealmConfiguration {
                                     accounts, transactions, sessions, settings));
             manager.setAuthenticationEventPublisher(
                     new RedactedAuthenticationEvents(events, settings.realm()));
-            var runtime =
-                    new OgiriRuntime(
-                            settings, transactions, sessions, accounts, signin, request -> manager);
-            mounts.add(
-                    new Mount(
-                            runtime,
-                            new OgiriEndpoints(runtime, registration, passwords, activation),
-                            realm.endpoints().enabled()));
+            var graph =
+                    RealmFactory.create(
+                            settings,
+                            accounts,
+                            transactions,
+                            sessions,
+                            encoder.encoder(),
+                            accountValidator,
+                            new MailDispatcher(applicationEvents, mailer),
+                            OgiriAutoConfiguration.links(realm, environment),
+                            events,
+                            request -> manager);
+            mounts.add(new Mount(graph.runtime(), graph.endpoints(), realm.endpoints().enabled()));
         }
         return new Mounts(mounts);
+    }
+
+    private static <T> T collaborator(
+            ApplicationContext context,
+            org.springframework.beans.factory.config.ConfigurableListableBeanFactory beans,
+            String realm,
+            String suffix,
+            Class<T> type,
+            String defaultBean,
+            java.util.function.Supplier<T> fallback) {
+        String name = realm + suffix;
+        if (context.containsBean(name)) return context.getBean(name, type);
+        // Let Spring choose the shared candidate (including @Primary and defaultCandidate=false).
+        var shared = context.getBeanProvider(type).getIfAvailable();
+        boolean generatedDefault =
+                shared != null
+                        && context.containsBean(defaultBean)
+                        && shared == context.getBean(defaultBean)
+                        && beans.containsBeanDefinition(defaultBean)
+                        && OgiriAutoConfiguration.class
+                                .getName()
+                                .equals(beans.getBeanDefinition(defaultBean).getFactoryBeanName());
+        if (shared != null && !generatedDefault) return shared;
+        return fallback.get();
     }
 
     @Bean
@@ -168,11 +214,33 @@ public class OgiriRealmConfiguration {
     }
 
     private static void registerMount(RequestMappingHandlerMapping mapping, Mount mount) {
-        for (var method : OgiriEndpoints.class.getMethods()) {
-            var route =
-                    org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation(
-                            method, org.springframework.web.bind.annotation.RequestMapping.class);
-            if (route == null) continue;
+        var handlers =
+                org.springframework.core.MethodIntrospector.selectMethods(
+                        OgiriEndpoints.class,
+                        (org.springframework.core.MethodIntrospector.MetadataLookup<
+                                        org.springframework.web.bind.annotation.RequestMapping>)
+                                method ->
+                                        org.springframework.core.annotation.AnnotatedElementUtils
+                                                .findMergedAnnotation(
+                                                        method,
+                                                        org.springframework.web.bind.annotation
+                                                                .RequestMapping.class));
+        var pathsInUse =
+                mapping.getHandlerMethods().keySet().stream()
+                        .flatMap(info -> info.getPatternValues().stream())
+                        .collect(java.util.stream.Collectors.toSet());
+        for (var route : handlers.values()) {
+            for (var path : route.path()) {
+                String mounted = mount.runtime().settings().basePath() + path;
+                if (pathsInUse.contains(mounted)) {
+                    throw new IllegalArgumentException(
+                            "Duplicate Ogiri realm endpoint path: " + mounted);
+                }
+            }
+        }
+        for (var handler : handlers.entrySet()) {
+            var method = handler.getKey();
+            var route = handler.getValue();
             String[] paths =
                     java.util.Arrays.stream(route.path())
                             .map(path -> mount.runtime().settings().basePath() + path)
@@ -187,6 +255,66 @@ public class OgiriRealmConfiguration {
                             .options(mapping.getBuilderConfiguration())
                             .build();
             mapping.registerMapping(info, mount.endpoints(), method);
+        }
+    }
+
+    /** The same workflow graph serves the root mount and every additional realm. */
+    static final class RealmFactory {
+        private RealmFactory() {}
+
+        record Realm(
+                OgiriRuntime runtime,
+                OgiriEndpoints endpoints,
+                ActivationService activation,
+                RegistrationService registration,
+                PasswordService passwords) {}
+
+        static Realm create(
+                OgiriSettings settings,
+                AccountStore accounts,
+                AuthTransactions transactions,
+                SessionRepository sessions,
+                DevisePasswordEncoder encoder,
+                AccountValidator validator,
+                MailDispatcher mail,
+                PublicLinks links,
+                AuthenticationEventPublisher events,
+                AuthenticationManagerResolver<HttpServletRequest> managers) {
+            var activation =
+                    new ActivationService(accounts, transactions, sessions, settings, mail, links);
+            var signIn =
+                    new SignInService(
+                            accounts, transactions, sessions, settings, encoder, activation);
+            signIn.setAuthenticationEventPublisher(events);
+            var registration =
+                    new RegistrationService(
+                            accounts,
+                            transactions,
+                            sessions,
+                            settings,
+                            encoder,
+                            signIn,
+                            validator,
+                            activation);
+            var passwords =
+                    new PasswordService(
+                            accounts,
+                            transactions,
+                            sessions,
+                            settings,
+                            encoder,
+                            signIn,
+                            validator,
+                            mail,
+                            links);
+            var runtime =
+                    new OgiriRuntime(settings, transactions, sessions, accounts, signIn, managers);
+            return new Realm(
+                    runtime,
+                    new OgiriEndpoints(runtime, registration, passwords, activation),
+                    activation,
+                    registration,
+                    passwords);
         }
     }
 }

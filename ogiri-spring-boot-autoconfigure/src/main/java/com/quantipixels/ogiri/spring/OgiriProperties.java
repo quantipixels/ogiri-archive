@@ -42,7 +42,7 @@ public record OgiriProperties(
         @DefaultValue("") String publicBaseUrl,
         @DefaultValue("no-reply@localhost") String mailFrom,
         @DefaultValue("12") int bcryptCost,
-        @DefaultValue java.util.Map<String, java.util.Map<String, Object>> realms) {
+        @DefaultValue java.util.Map<String, OgiriProperties> realms) {
     public OgiriProperties {
         realms = realms == null ? java.util.Map.of() : java.util.Map.copyOf(realms);
         redirectAllowlist = redirectAllowlist == null ? List.of() : List.copyOf(redirectAllowlist);
