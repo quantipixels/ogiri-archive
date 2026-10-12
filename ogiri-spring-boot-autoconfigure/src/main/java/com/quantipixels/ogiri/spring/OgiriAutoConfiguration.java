@@ -58,13 +58,30 @@ public final class OgiriAutoConfiguration {
     }
 
     static void validateFeatures(OgiriProperties properties) {
-        rejectUnimplementedCleanup(properties);
+        var cleanup = properties.cleanup();
+        if (cleanup.batchSize() < 1 || cleanup.batchSize() > 10000)
+            throw new IllegalArgumentException(
+                    "Ogiri cleanup batch size must be between 1 and 10000");
+        if (cleanup.interval() != null && cleanup.interval().toMillis() < 1)
+            throw new IllegalArgumentException("Ogiri cleanup interval must be positive");
     }
 
-    private static void rejectUnimplementedCleanup(OgiriProperties properties) {
-        if (properties.cleanup().interval() != null || properties.cleanup().batchSize() != 1000)
-            throw new IllegalStateException(
-                    "Ogiri scheduled cleanup is not implemented in this checkpoint");
+    @Bean
+    @ConditionalOnMissingBean(
+            org.springframework.security.authentication.AuthenticationEventPublisher.class)
+    org.springframework.security.authentication.AuthenticationEventPublisher
+            ogiriAuthenticationEvents(
+                    org.springframework.context.ApplicationEventPublisher events) {
+        return new org.springframework.security.authentication.DefaultAuthenticationEventPublisher(
+                events);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "ogiri.cleanup", name = "interval")
+    OgiriSessionCleanup ogiriCleanupScheduler(
+            SessionRepository sessions, OgiriProperties properties) {
+        validateFeatures(properties);
+        return new OgiriSessionCleanup(sessions, properties.cleanup());
     }
 
     @Bean
@@ -123,9 +140,18 @@ public final class OgiriAutoConfiguration {
             SessionRepository sessions,
             OgiriSettings settings,
             com.quantipixels.ogiri.account.OgiriPasswords passwords,
-            com.quantipixels.ogiri.account.ActivationService activation) {
-        return new SignInService(
-                accounts, transactions, sessions, settings, passwords.encoder(), activation);
+            com.quantipixels.ogiri.account.ActivationService activation,
+            org.springframework.security.authentication.AuthenticationEventPublisher events) {
+        var signIn =
+                new SignInService(
+                        accounts,
+                        transactions,
+                        sessions,
+                        settings,
+                        passwords.encoder(),
+                        activation);
+        signIn.setAuthenticationEventPublisher(events);
+        return signIn;
     }
 
     @Bean
@@ -255,7 +281,9 @@ public final class OgiriAutoConfiguration {
                     AccountStore accounts,
                     AuthTransactions transactions,
                     SessionRepository sessions,
-                    OgiriSettings settings) {
+                    OgiriSettings settings,
+                    org.springframework.security.authentication.AuthenticationEventPublisher
+                            events) {
         var provider =
                 providers.getIfAvailable(
                         () ->
@@ -263,6 +291,8 @@ public final class OgiriAutoConfiguration {
                                         .OgiriTokenAuthenticationProvider(
                                         accounts, transactions, sessions, settings));
         var manager = new org.springframework.security.authentication.ProviderManager(provider);
+        manager.setAuthenticationEventPublisher(
+                new RedactedAuthenticationEvents(events, settings.realm()));
         return request -> manager;
     }
 

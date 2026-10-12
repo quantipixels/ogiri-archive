@@ -141,7 +141,7 @@ class OgiriAutoConfigurationTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({
-        "ogiri.cleanup.interval=1m,Ogiri scheduled cleanup is not implemented in this checkpoint"
+        "ogiri.cleanup.interval=0ms,Ogiri cleanup interval must be positive"
     })
     void unfinishedConfiguredBehaviorFailsExplicitly(String property, String cause) {
         runner.withBean(DataSource.class, OgiriAutoConfigurationTest::source)

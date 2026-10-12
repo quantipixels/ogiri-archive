@@ -6,6 +6,8 @@ import com.quantipixels.ogiri.Subject;
 import java.util.Objects;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -19,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** One resource and lock owner for atomic, independently committed auth operations. */
 public final class AuthTransactions {
+    private static final Logger LOG = LoggerFactory.getLogger(AuthTransactions.class);
     private final JdbcTemplate jdbc;
     private final Database database;
     private final TransactionTemplate mutations;
@@ -98,6 +101,8 @@ public final class AuthTransactions {
         try {
             return template.execute(status -> operation.get());
         } catch (DataAccessException | TransactionException failure) {
+            LOG.error(
+                    "Ogiri authentication store unavailable", FailureDiagnostics.redacted(failure));
             throw new SessionStoreException(failure);
         }
     }
