@@ -2,7 +2,7 @@
 
 Ogiri provides database-backed opaque sessions and devise_token_auth account workflows for Spring Boot. Every authenticated request checks the stored session and current account. Applications keep their account model and authorization rules.
 
-The baseline is Spring Boot 4.1.1, Java 17+, Jackson 3.1.7, PostgreSQL and MySQL 8.4 (InnoDB). Boot 3 and Jackson 2 are unsupported. The library builds with Java 21+; repository scripts select JDK 25 and run tests on Java 17. Check other Boot 4.x versions in your application.
+The baseline is Spring Boot 4.1.1, Java 17+, Jackson 3 (as managed by Boot), PostgreSQL and MySQL 8.4 (InnoDB). Boot 3 and Jackson 2 are unsupported. The library builds with Java 21+; repository scripts select JDK 25 and run tests on Java 17. Check other Boot 4.x versions in your application.
 
 The POM version is `0.0.1`; the project is an unpublished prototype. The instructions below build local artifacts and do not assume a Maven Central release. Before 1.0, API and schema changes can break compatibility; see the [changelog](CHANGELOG.md) and [security notes](SECURITY.md).
 
@@ -27,7 +27,6 @@ Start with a Java 17+ Spring Boot application using `spring-boot-starter-parent`
 ```xml
 <properties>
   <java.version>17</java.version>
-  <jackson-bom.version>3.1.7</jackson-bom.version>
   <tomcat.version>11.0.26</tomcat.version>
 </properties>
 <dependencyManagement>
@@ -62,7 +61,7 @@ Start with a Java 17+ Spring Boot application using `spring-boot-starter-parent`
 </build>
 ```
 
-For MySQL, replace the driver with `com.mysql:mysql-connector-j`. The BOM aligns only Ogiri artifacts. The quickstart pins Jackson 3.1.7 and retains the sample's Tomcat 11.0.26 override. The current sample leaves Jackson to Boot 4.1.1, which resolves 3.1.5; its resolved Jackson version differs from the library baseline. Use the generated consumer settings when resolving these unpublished artifacts from another application.
+For MySQL, replace the driver with `com.mysql:mysql-connector-j`. The BOM aligns only Ogiri artifacts; Jackson comes from Boot. The Tomcat 11.0.26 override picks up security fixes newer than Boot 4.1.1's 11.0.24. Use the generated consumer settings when resolving these unpublished artifacts from another application.
 
 ### Apply the schema and configure one realm
 
