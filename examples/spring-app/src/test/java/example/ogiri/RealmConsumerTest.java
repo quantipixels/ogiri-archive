@@ -29,13 +29,83 @@ import tools.jackson.databind.json.JsonMapper;
             "ogiri.token-lifespan=120s",
             "ogiri.realms.admins.max-number-of-devices=1"
         })
-@org.springframework.context.annotation.Import(HostChainTest.Host.class)
+@org.springframework.context.annotation.Import({
+    HostChainTest.Host.class,
+    RealmConsumerTest.RealmMail.class
+})
 class RealmConsumerTest {
     @Value("${local.server.port}")
     int port;
 
     @Autowired JdbcTemplate jdbc;
     @Autowired com.quantipixels.ogiri.security.OgiriRealms realms;
+
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class RealmMail {
+        @org.springframework.context.annotation.Bean(defaultCandidate = false)
+        com.quantipixels.ogiri.mail.OgiriMailer adminsOgiriMailer() {
+            return org.mockito.Mockito.mock(com.quantipixels.ogiri.mail.OgiriMailer.class);
+        }
+    }
+
+    @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("adminsOgiriMailer")
+    com.quantipixels.ogiri.mail.OgiriMailer adminMailer;
+
+    @Test
+    void realmMailerReceivesRecoveryOnlyAfterItsAccountDigestCommits() throws Exception {
+        String email = "realm-mail-" + java.util.UUID.randomUUID() + "@example.com";
+        assertEquals(200, signup("/admin_auth", email).statusCode());
+        var link = new java.util.concurrent.atomic.AtomicReference<String>();
+        org.mockito.Mockito.doAnswer(
+                        call -> {
+                            String value = call.getArgument(1);
+                            var outside =
+                                    new JdbcTemplate(
+                                            new org.springframework.jdbc.datasource
+                                                    .DriverManagerDataSource(
+                                                    System.getenv("OGIRI_TEST_JDBC_URL"),
+                                                    System.getenv("OGIRI_TEST_JDBC_USER"),
+                                                    System.getenv("OGIRI_TEST_JDBC_PASSWORD")));
+                            String stored =
+                                    outside.queryForObject(
+                                            "SELECT reset_password_token FROM admins WHERE email = ?",
+                                            String.class,
+                                            email);
+                            String token =
+                                    PasswordMailTest.query(value).get("reset_password_token");
+                            String digest =
+                                    java.util.HexFormat.of()
+                                            .formatHex(
+                                                    java.security.MessageDigest.getInstance(
+                                                                    "SHA-256")
+                                                            .digest(
+                                                                    token.getBytes(
+                                                                            java.nio.charset
+                                                                                    .StandardCharsets
+                                                                                    .US_ASCII)));
+                            assertEquals(digest, stored);
+                            link.set(value);
+                            return null;
+                        })
+                .when(adminMailer)
+                .resetPassword(
+                        org.mockito.ArgumentMatchers.eq(email),
+                        org.mockito.ArgumentMatchers.anyString());
+        var response =
+                request(
+                        "POST",
+                        "/admin_auth/password",
+                        Map.of("email", email, "redirect_url", "https://client.example.test/reset"),
+                        null);
+        assertEquals(200, response.statusCode(), response.body());
+        assertNotNull(link.get());
+        assertTrue(link.get().contains("/admin_auth/password/edit?"));
+        org.mockito.Mockito.verify(adminMailer)
+                .resetPassword(
+                        org.mockito.ArgumentMatchers.eq(email),
+                        org.mockito.ArgumentMatchers.anyString());
+    }
 
     @BeforeEach
     void schema() {

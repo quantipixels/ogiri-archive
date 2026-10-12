@@ -27,7 +27,12 @@ public final class MailDispatcher {
     }
 
     public static final class Receipt {
+        private final OgiriMailer mailer;
         private boolean delivered;
+
+        private Receipt(OgiriMailer mailer) {
+            this.mailer = mailer;
+        }
 
         public void verify(boolean paranoid) {
             if (!delivered && !paranoid) throw new DtaFailure(503, DtaFailure.unavailable());
@@ -42,7 +47,7 @@ public final class MailDispatcher {
     }
 
     public Receipt enqueue(Kind kind, String recipient, String link) {
-        var receipt = new Receipt();
+        var receipt = new Receipt(mailer);
         events.publishEvent(new Intent(kind, recipient, link, receipt));
         return receipt;
     }
@@ -51,9 +56,11 @@ public final class MailDispatcher {
     public void deliver(Intent intent) {
         try {
             switch (intent.kind()) {
-                case RESET -> mailer.resetPassword(intent.recipient(), intent.link());
-                case CONFIRMATION -> mailer.confirmation(intent.recipient(), intent.link());
-                case UNLOCK -> mailer.unlock(intent.recipient(), intent.link());
+                case RESET ->
+                        intent.receipt().mailer.resetPassword(intent.recipient(), intent.link());
+                case CONFIRMATION ->
+                        intent.receipt().mailer.confirmation(intent.recipient(), intent.link());
+                case UNLOCK -> intent.receipt().mailer.unlock(intent.recipient(), intent.link());
             }
             intent.receipt().delivered = true;
         } catch (Exception failure) {
