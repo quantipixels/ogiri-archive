@@ -187,8 +187,8 @@ public final class PasswordService {
     }
 
     private static void requirePassword(OgiriAccount current, AccountInput input) {
-        if (!current.text("provider").equals("email")) {
-            String provider = current.text("provider");
+        if (!current.provider().equals("email")) {
+            String provider = current.provider();
             provider = Character.toUpperCase(provider.charAt(0)) + provider.substring(1);
             throw new DtaFailure(
                     422,

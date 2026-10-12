@@ -170,7 +170,7 @@ public final class RegistrationService {
         if (reconfirm) changes.put("unconfirmed_email", input.email());
         else {
             changes.put("email", input.email());
-            if (current.text("provider").equals("email")) changes.put("uid", input.email());
+            if (current.provider().equals("email")) changes.put("uid", input.email());
         }
         return reconfirm;
     }

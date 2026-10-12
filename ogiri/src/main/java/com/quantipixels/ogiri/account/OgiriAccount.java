@@ -81,6 +81,14 @@ public final class OgiriAccount implements UserDetails {
         return text("uid");
     }
 
+    /**
+     * Password accounts need not store a Devise provider column. Explicit providers are preserved.
+     */
+    public String provider() {
+        String value = text("provider");
+        return value.isBlank() ? "email" : value;
+    }
+
     public String email() {
         return text("email");
     }

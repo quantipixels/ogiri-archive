@@ -162,7 +162,7 @@ public final class ActivationService {
                             changes.put("updated_at", Instant.ofEpochMilli(transactions.now()));
                             if (!account.text("unconfirmed_email").isEmpty()) {
                                 changes.put("email", account.text("unconfirmed_email"));
-                                if (account.text("provider").equals("email"))
+                                if (account.provider().equals("email"))
                                     changes.put("uid", account.text("unconfirmed_email"));
                                 changes.put("unconfirmed_email", null);
                             }
