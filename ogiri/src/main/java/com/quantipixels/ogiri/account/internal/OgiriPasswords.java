@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.account;
+package com.quantipixels.ogiri.account.internal;
 
 /** Ogiri-only password policy; deliberately not a host PasswordEncoder bean. */
 public record OgiriPasswords(DevisePasswordEncoder encoder) {}

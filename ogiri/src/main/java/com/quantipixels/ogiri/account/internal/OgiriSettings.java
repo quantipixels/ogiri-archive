@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.account;
+package com.quantipixels.ogiri.account.internal;
 
+import com.quantipixels.ogiri.account.OgiriAccount;
 import java.time.Duration;
 import java.util.List;
 
@@ -110,7 +111,7 @@ public record OgiriSettings(
     public void requireOwner(OgiriAccount identity, com.quantipixels.ogiri.Session session) {
         var expected = subject(identity);
         if (session == null || !expected.equals(session.subject())) {
-            throw new com.quantipixels.ogiri.DtaFailure(401, "Unauthorized");
+            throw new com.quantipixels.ogiri.internal.DtaFailure(401, "Unauthorized");
         }
     }
 
@@ -118,7 +119,7 @@ public record OgiriSettings(
     public void requireCurrentAccount(OgiriAccount identity, OgiriAccount current) {
         if (!subject(identity).equals(subject(current))
                 || !identity.generation().equals(current.generation()))
-            throw new com.quantipixels.ogiri.DtaFailure(401, "Unauthorized");
+            throw new com.quantipixels.ogiri.internal.DtaFailure(401, "Unauthorized");
     }
 
     private static boolean validPath(String path) {

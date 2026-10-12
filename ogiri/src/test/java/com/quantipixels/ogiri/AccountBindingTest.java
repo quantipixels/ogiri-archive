@@ -4,8 +4,16 @@ package com.quantipixels.ogiri;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.quantipixels.ogiri.account.*;
+import com.quantipixels.ogiri.account.internal.DevisePasswordEncoder;
+import com.quantipixels.ogiri.account.internal.JdbcDeviseAccountStore;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
+import com.quantipixels.ogiri.account.internal.RegistrationService;
+import com.quantipixels.ogiri.account.internal.SignInService;
 import com.quantipixels.ogiri.internal.*;
 import com.quantipixels.ogiri.security.*;
+import com.quantipixels.ogiri.security.internal.DtaAuthenticationToken;
+import com.quantipixels.ogiri.security.internal.DtaCredential;
+import com.quantipixels.ogiri.security.internal.OgiriTokenAuthenticationProvider;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

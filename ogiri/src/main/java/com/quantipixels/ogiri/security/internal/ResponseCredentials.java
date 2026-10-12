@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.security;
+package com.quantipixels.ogiri.security.internal;
 
 import com.quantipixels.ogiri.IssuedSession;
 import com.quantipixels.ogiri.Session;
+import com.quantipixels.ogiri.security.OgiriRuntime;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
 

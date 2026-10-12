@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri;
+package com.quantipixels.ogiri.internal;
 
 import java.util.List;
 import java.util.Map;

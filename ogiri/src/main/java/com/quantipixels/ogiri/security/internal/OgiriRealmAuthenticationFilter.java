@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.security.internal;
 
-import com.quantipixels.ogiri.security.OgiriAuthenticationFilter;
 import com.quantipixels.ogiri.security.OgiriRealms;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

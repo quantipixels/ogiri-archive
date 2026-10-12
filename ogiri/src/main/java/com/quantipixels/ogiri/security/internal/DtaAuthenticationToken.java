@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.security;
+package com.quantipixels.ogiri.security.internal;
 
 import java.util.List;
 import org.springframework.security.authentication.AbstractAuthenticationToken;

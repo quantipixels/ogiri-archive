@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.spring;
 
-import com.quantipixels.ogiri.account.OgiriSettings;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;

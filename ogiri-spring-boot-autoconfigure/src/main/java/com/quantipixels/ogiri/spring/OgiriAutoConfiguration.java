@@ -3,15 +3,17 @@ package com.quantipixels.ogiri.spring;
 
 import com.quantipixels.ogiri.SessionPolicy;
 import com.quantipixels.ogiri.account.AccountStore;
-import com.quantipixels.ogiri.account.DevisePasswordEncoder;
-import com.quantipixels.ogiri.account.JdbcDeviseAccountStore;
 import com.quantipixels.ogiri.account.OgiriAuthorities;
-import com.quantipixels.ogiri.account.OgiriSettings;
-import com.quantipixels.ogiri.account.SignInService;
+import com.quantipixels.ogiri.account.internal.DevisePasswordEncoder;
+import com.quantipixels.ogiri.account.internal.JdbcDeviseAccountStore;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
+import com.quantipixels.ogiri.account.internal.SignInService;
 import com.quantipixels.ogiri.internal.AuthTransactions;
 import com.quantipixels.ogiri.internal.SessionRepository;
 import com.quantipixels.ogiri.security.OgiriConfigurer;
 import com.quantipixels.ogiri.security.OgiriRuntime;
+import com.quantipixels.ogiri.spring.internal.OgiriSessionCleanup;
+import com.quantipixels.ogiri.spring.internal.RedactedAuthenticationEvents;
 import com.quantipixels.ogiri.web.internal.OgiriEndpoints;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
@@ -108,8 +110,9 @@ public final class OgiriAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    com.quantipixels.ogiri.account.OgiriPasswords ogiriPasswordEncoder(OgiriProperties properties) {
-        return new com.quantipixels.ogiri.account.OgiriPasswords(
+    com.quantipixels.ogiri.account.internal.OgiriPasswords ogiriPasswordEncoder(
+            OgiriProperties properties) {
+        return new com.quantipixels.ogiri.account.internal.OgiriPasswords(
                 new DevisePasswordEncoder(properties.bcryptCost()));
     }
 
@@ -139,8 +142,8 @@ public final class OgiriAutoConfiguration {
             AuthTransactions transactions,
             SessionRepository sessions,
             OgiriSettings settings,
-            com.quantipixels.ogiri.account.OgiriPasswords passwords,
-            com.quantipixels.ogiri.account.ActivationService activation,
+            com.quantipixels.ogiri.account.internal.OgiriPasswords passwords,
+            com.quantipixels.ogiri.account.internal.ActivationService activation,
             org.springframework.security.authentication.AuthenticationEventPublisher events) {
         var signIn =
                 new SignInService(
@@ -162,23 +165,23 @@ public final class OgiriAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    com.quantipixels.ogiri.account.AccountValidator ogiriAccountValidator(
+    com.quantipixels.ogiri.account.internal.AccountValidator ogiriAccountValidator(
             jakarta.validation.Validator validator) {
-        return new com.quantipixels.ogiri.account.AccountValidator(validator);
+        return new com.quantipixels.ogiri.account.internal.AccountValidator(validator);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    com.quantipixels.ogiri.account.RegistrationService ogiriRegistration(
+    com.quantipixels.ogiri.account.internal.RegistrationService ogiriRegistration(
             AccountStore accounts,
             AuthTransactions transactions,
             SessionRepository sessions,
             OgiriSettings settings,
-            com.quantipixels.ogiri.account.OgiriPasswords passwords,
+            com.quantipixels.ogiri.account.internal.OgiriPasswords passwords,
             SignInService signIn,
-            com.quantipixels.ogiri.account.AccountValidator validator,
-            com.quantipixels.ogiri.account.ActivationService activation) {
-        return new com.quantipixels.ogiri.account.RegistrationService(
+            com.quantipixels.ogiri.account.internal.AccountValidator validator,
+            com.quantipixels.ogiri.account.internal.ActivationService activation) {
+        return new com.quantipixels.ogiri.account.internal.RegistrationService(
                 accounts,
                 transactions,
                 sessions,
@@ -235,30 +238,30 @@ public final class OgiriAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    com.quantipixels.ogiri.account.ActivationService ogiriActivation(
+    com.quantipixels.ogiri.account.internal.ActivationService ogiriActivation(
             AccountStore accounts,
             AuthTransactions transactions,
             SessionRepository sessions,
             OgiriSettings settings,
             com.quantipixels.ogiri.internal.MailDispatcher mail,
             com.quantipixels.ogiri.internal.PublicLinks links) {
-        return new com.quantipixels.ogiri.account.ActivationService(
+        return new com.quantipixels.ogiri.account.internal.ActivationService(
                 accounts, transactions, sessions, settings, mail, links);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    com.quantipixels.ogiri.account.PasswordService ogiriPasswordService(
+    com.quantipixels.ogiri.account.internal.PasswordService ogiriPasswordService(
             AccountStore accounts,
             AuthTransactions transactions,
             SessionRepository sessions,
             OgiriSettings settings,
-            com.quantipixels.ogiri.account.OgiriPasswords passwords,
+            com.quantipixels.ogiri.account.internal.OgiriPasswords passwords,
             SignInService signIn,
-            com.quantipixels.ogiri.account.AccountValidator validator,
+            com.quantipixels.ogiri.account.internal.AccountValidator validator,
             com.quantipixels.ogiri.internal.MailDispatcher mail,
             com.quantipixels.ogiri.internal.PublicLinks links) {
-        return new com.quantipixels.ogiri.account.PasswordService(
+        return new com.quantipixels.ogiri.account.internal.PasswordService(
                 accounts,
                 transactions,
                 sessions,
@@ -276,7 +279,9 @@ public final class OgiriAutoConfiguration {
     org.springframework.security.authentication.AuthenticationManagerResolver<
                     jakarta.servlet.http.HttpServletRequest>
             ogiriAuthenticationManagers(
-                    ObjectProvider<com.quantipixels.ogiri.security.OgiriTokenAuthenticationProvider>
+                    ObjectProvider<
+                                    com.quantipixels.ogiri.security.internal
+                                            .OgiriTokenAuthenticationProvider>
                             providers,
                     AccountStore accounts,
                     AuthTransactions transactions,
@@ -287,7 +292,7 @@ public final class OgiriAutoConfiguration {
         var provider =
                 providers.getIfAvailable(
                         () ->
-                                new com.quantipixels.ogiri.security
+                                new com.quantipixels.ogiri.security.internal
                                         .OgiriTokenAuthenticationProvider(
                                         accounts, transactions, sessions, settings));
         var manager = new org.springframework.security.authentication.ProviderManager(provider);
@@ -320,9 +325,9 @@ public final class OgiriAutoConfiguration {
             matchIfMissing = true)
     OgiriEndpoints ogiriEndpoints(
             OgiriRuntime runtime,
-            com.quantipixels.ogiri.account.RegistrationService registration,
-            com.quantipixels.ogiri.account.PasswordService passwords,
-            com.quantipixels.ogiri.account.ActivationService activation) {
+            com.quantipixels.ogiri.account.internal.RegistrationService registration,
+            com.quantipixels.ogiri.account.internal.PasswordService passwords,
+            com.quantipixels.ogiri.account.internal.ActivationService activation) {
         return new OgiriEndpoints(runtime, registration, passwords, activation);
     }
 
@@ -352,17 +357,17 @@ public final class OgiriAutoConfiguration {
                         config ->
                                 config.authenticationEntryPoint(
                                                 (request, response, failure) ->
-                                                        com.quantipixels.ogiri.security.DtaErrors
-                                                                .unauthorized(
-                                                                        request,
-                                                                        response,
-                                                                        realms.resolve(request)
-                                                                                .settings()
-                                                                                .basePath()))
+                                                        com.quantipixels.ogiri.security.internal
+                                                                .DtaErrors.unauthorized(
+                                                                request,
+                                                                response,
+                                                                realms.resolve(request)
+                                                                        .settings()
+                                                                        .basePath()))
                                         .accessDeniedHandler(
                                                 (request, response, failure) ->
-                                                        com.quantipixels.ogiri.security.DtaErrors
-                                                                .forbidden(response)));
+                                                        com.quantipixels.ogiri.security.internal
+                                                                .DtaErrors.forbidden(response)));
         http.with(OgiriConfigurer.ogiri(realms), config -> {});
         return http.authorizeHttpRequests(
                         routes ->

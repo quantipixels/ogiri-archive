@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.security;
+package com.quantipixels.ogiri.security.internal;
 
 public record DtaCredential(String uid, String client, String token, boolean cookie)
         implements java.io.Serializable {

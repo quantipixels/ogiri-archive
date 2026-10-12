@@ -2,6 +2,7 @@
 package com.quantipixels.ogiri.account;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;

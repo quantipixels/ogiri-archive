@@ -4,9 +4,9 @@ package com.quantipixels.ogiri;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import com.quantipixels.ogiri.account.OgiriSettings;
-import com.quantipixels.ogiri.security.DtaAuthenticationToken;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
 import com.quantipixels.ogiri.security.internal.DtaAuthenticationConverter;
+import com.quantipixels.ogiri.security.internal.DtaAuthenticationToken;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;

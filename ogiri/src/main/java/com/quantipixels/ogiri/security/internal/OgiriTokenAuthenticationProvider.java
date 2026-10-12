@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.quantipixels.ogiri.security;
+package com.quantipixels.ogiri.security.internal;
 
 import com.quantipixels.ogiri.account.AccountStore;
-import com.quantipixels.ogiri.account.OgiriSettings;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
 import com.quantipixels.ogiri.internal.AuthTransactions;
 import com.quantipixels.ogiri.internal.SessionRepository;
+import com.quantipixels.ogiri.security.OgiriAuthentication;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;

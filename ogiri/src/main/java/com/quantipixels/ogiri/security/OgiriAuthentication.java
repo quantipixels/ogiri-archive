@@ -3,6 +3,7 @@ package com.quantipixels.ogiri.security;
 
 import com.quantipixels.ogiri.Session;
 import com.quantipixels.ogiri.account.OgiriAccount;
+import com.quantipixels.ogiri.security.internal.ResponseCredentials;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 
 /** Account principal with server-side session metadata; prior roles are never inherited. */

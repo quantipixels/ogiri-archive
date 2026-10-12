@@ -151,7 +151,7 @@ class RealmConsumerTest {
         }
     }
 
-    @Autowired com.quantipixels.ogiri.account.AccountValidator validator;
+    @Autowired com.quantipixels.ogiri.account.internal.AccountValidator validator;
     @Autowired com.quantipixels.ogiri.internal.MailDispatcher mail;
     @Autowired com.quantipixels.ogiri.internal.PublicLinks links;
 
@@ -207,9 +207,9 @@ class RealmConsumerTest {
                 new com.quantipixels.ogiri.security.OgiriAuthentication(
                         login.account(), login.issued().session());
         var admin = realms.additional().get(0);
-        var encoder = new com.quantipixels.ogiri.account.DevisePasswordEncoder();
+        var encoder = new com.quantipixels.ogiri.account.internal.DevisePasswordEncoder();
         var activation =
-                new com.quantipixels.ogiri.account.ActivationService(
+                new com.quantipixels.ogiri.account.internal.ActivationService(
                         admin.accounts(),
                         admin.transactions(),
                         admin.sessions(),
@@ -217,7 +217,7 @@ class RealmConsumerTest {
                         mail,
                         links);
         var registration =
-                new com.quantipixels.ogiri.account.RegistrationService(
+                new com.quantipixels.ogiri.account.internal.RegistrationService(
                         admin.accounts(),
                         admin.transactions(),
                         admin.sessions(),
@@ -227,7 +227,7 @@ class RealmConsumerTest {
                         validator,
                         activation);
         var passwords =
-                new com.quantipixels.ogiri.account.PasswordService(
+                new com.quantipixels.ogiri.account.internal.PasswordService(
                         admin.accounts(),
                         admin.transactions(),
                         admin.sessions(),
@@ -281,7 +281,7 @@ class RealmConsumerTest {
                                 passwords.change(
                                         identity.getPrincipal(), password, identity.session()));
         for (var operation : operations) {
-            var failure = assertThrows(com.quantipixels.ogiri.DtaFailure.class, operation);
+            var failure = assertThrows(com.quantipixels.ogiri.internal.DtaFailure.class, operation);
             assertEquals(401, failure.status());
         }
         assertEquals(
@@ -316,7 +316,7 @@ class RealmConsumerTest {
         realm.settings().requireOwner(login.account(), session);
         var failure =
                 assertThrows(
-                        com.quantipixels.ogiri.DtaFailure.class,
+                        com.quantipixels.ogiri.internal.DtaFailure.class,
                         () -> realm.settings().requireOwner(login.account(), foreign));
         assertEquals(401, failure.status());
     }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.quantipixels.ogiri.internal;
 
-import com.quantipixels.ogiri.DtaFailure;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;

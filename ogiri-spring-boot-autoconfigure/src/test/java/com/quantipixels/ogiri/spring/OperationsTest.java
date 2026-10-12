@@ -4,11 +4,11 @@ package com.quantipixels.ogiri.spring;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.quantipixels.ogiri.DtaFailure;
 import com.quantipixels.ogiri.SessionStoreException;
 import com.quantipixels.ogiri.account.AccountStore;
-import com.quantipixels.ogiri.account.SignInService;
+import com.quantipixels.ogiri.account.internal.SignInService;
 import com.quantipixels.ogiri.internal.AuthTransactions;
+import com.quantipixels.ogiri.internal.DtaFailure;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,8 +78,8 @@ class OperationsTest {
                             var accounts = context.getBean(AccountStore.class);
                             var encoder =
                                     context.getBean(
-                                                    com.quantipixels.ogiri.account.OgiriPasswords
-                                                            .class)
+                                                    com.quantipixels.ogiri.account.internal
+                                                            .OgiriPasswords.class)
                                             .encoder();
                             var account =
                                     tx.write(
@@ -115,7 +115,7 @@ class OperationsTest {
                             tx.write(
                                     () ->
                                             context.getBean(
-                                                            com.quantipixels.ogiri.account
+                                                            com.quantipixels.ogiri.account.internal
                                                                     .ActivationService.class)
                                                     .clearLockLocked(
                                                             accounts.lock(account.id())
@@ -163,8 +163,8 @@ class OperationsTest {
                             var tx = context.getBean(AuthTransactions.class);
                             var encoder =
                                     context.getBean(
-                                                    com.quantipixels.ogiri.account.OgiriPasswords
-                                                            .class)
+                                                    com.quantipixels.ogiri.account.internal
+                                                            .OgiriPasswords.class)
                                             .encoder();
                             tx.write(
                                     () ->
@@ -213,8 +213,8 @@ class OperationsTest {
                                             com.quantipixels.ogiri.security.OgiriRuntime.class);
                             var encoder =
                                     context.getBean(
-                                                    com.quantipixels.ogiri.account.OgiriPasswords
-                                                            .class)
+                                                    com.quantipixels.ogiri.account.internal
+                                                            .OgiriPasswords.class)
                                             .encoder();
                             runtime.transactions()
                                     .write(
@@ -258,15 +258,19 @@ class OperationsTest {
                                                     new org.springframework.mock.web
                                                             .MockHttpServletRequest());
                             manager.authenticate(
-                                    new com.quantipixels.ogiri.security.DtaAuthenticationToken(
-                                            new com.quantipixels.ogiri.security.DtaCredential(
+                                    new com.quantipixels.ogiri.security.internal
+                                            .DtaAuthenticationToken(
+                                            new com.quantipixels.ogiri.security.internal
+                                                    .DtaCredential(
                                                     login.account().uid(),
                                                     login.issued().session().client(),
                                                     login.issued().token(),
                                                     false)));
                             manager.authenticate(
-                                    new com.quantipixels.ogiri.security.DtaAuthenticationToken(
-                                            new com.quantipixels.ogiri.security.DtaCredential(
+                                    new com.quantipixels.ogiri.security.internal
+                                            .DtaAuthenticationToken(
+                                            new com.quantipixels.ogiri.security.internal
+                                                    .DtaCredential(
                                                     login.account().uid(),
                                                     login.issued().session().client(),
                                                     login.issued().token(),
@@ -275,9 +279,11 @@ class OperationsTest {
                                             () ->
                                                     manager.authenticate(
                                                             new com.quantipixels.ogiri.security
+                                                                    .internal
                                                                     .DtaAuthenticationToken(
                                                                     new com.quantipixels.ogiri
-                                                                            .security.DtaCredential(
+                                                                            .security.internal
+                                                                            .DtaCredential(
                                                                             "  TOKEN@example.test  ",
                                                                             login.issued()
                                                                                     .session()

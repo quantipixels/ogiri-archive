@@ -4,7 +4,7 @@ package com.quantipixels.ogiri.spring;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.quantipixels.ogiri.JdbcSessions;
-import com.quantipixels.ogiri.account.OgiriSettings;
+import com.quantipixels.ogiri.account.internal.OgiriSettings;
 import com.quantipixels.ogiri.internal.AuthTransactions;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Tag;
@@ -91,7 +91,7 @@ class OgiriAutoConfigurationTest {
                         context -> {
                             assertThat(context).hasNotFailed();
                             var input =
-                                    com.quantipixels.ogiri.account.AccountInput.from(
+                                    com.quantipixels.ogiri.account.internal.AccountInput.from(
                                             java.util.Map.of("department", "engineering"),
                                             context.getBean(OgiriSettings.class),
                                             false);
@@ -336,7 +336,7 @@ class OgiriAutoConfigurationTest {
         @org.springframework.context.annotation.Bean(defaultCandidate = false)
         com.quantipixels.ogiri.account.AccountStore adminsOgiriAccountStore(
                 AuthTransactions transactions) {
-            return new com.quantipixels.ogiri.account.JdbcDeviseAccountStore(
+            return new com.quantipixels.ogiri.account.internal.JdbcDeviseAccountStore(
                     transactions, "admins", columns -> java.util.List.of());
         }
     }
