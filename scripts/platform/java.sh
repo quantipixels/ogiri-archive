@@ -72,6 +72,11 @@ sample)
 sbom) sbom ;;
 release) release ;;
 benchmark) "${maven[@]}" -pl ogiri org.codehaus.mojo:exec-maven-plugin:3.5.0:java -Dexec.mainClass=com.quantipixels.ogiri.JdbcSessionsBenchmark -Dexec.classpathScope=test ;;
+codeql)
+    verify -Dmaven.test.skip=true -Dmaven.javadoc.skip=true
+    stage
+    "${maven[@]}" "${consumer[@]}" -Dmaven.test.skip=true verify
+    ;;
 staged) "${maven[@]}" spotless:check checkstyle:check ;;
 fix)
     # The standalone BOM has no Java sources or formatter configuration.

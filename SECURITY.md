@@ -49,4 +49,4 @@ For an existing pre-generation schema, stop all Ogiri writers and apply `001-acc
 
 ## What the tests prove
 
-Tests run against disposable PostgreSQL and MySQL databases with destructive fixtures, plus an HTTP conformance suite against a reference devise_token_auth server. Together with dependency scanning they cover different boundaries; none proves the absence of vulnerabilities, every race, or production capacity.
+Tests run against disposable PostgreSQL and MySQL databases with destructive fixtures, plus an HTTP conformance suite against a reference devise_token_auth server. Together with CodeQL and dependency scanning they cover different boundaries; none proves the absence of vulnerabilities, every race, or production capacity.
