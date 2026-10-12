@@ -1,1 +1,22 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><parent><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-parent</artifactId><version>0.0.1</version></parent><artifactId>ogiri-spring-boot-starter</artifactId><packaging>jar</packaging><name>Ogiri Spring Boot starter</name><dependencies><dependency><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-spring-boot-autoconfigure</artifactId><version>${project.version}</version></dependency></dependencies></project>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-parent</artifactId><version>0.0.1</version></parent>
+  <artifactId>ogiri-spring-boot-starter</artifactId>
+  <packaging>jar</packaging>
+  <name>Ogiri Spring Boot starter</name>
+  <description>Spring Boot 4 opaque sessions backed by PostgreSQL or MySQL.</description>
+  <url>https://github.com/quantipixels/ogiri</url>
+  <licenses><license><name>Apache License 2.0</name><url>https://www.apache.org/licenses/LICENSE-2.0</url></license></licenses>
+  <developers><developer><id>quantipixels</id><name>Quanti Pixels</name></developer></developers>
+  <scm><url>https://github.com/quantipixels/ogiri</url><connection>scm:git:https://github.com/quantipixels/ogiri.git</connection></scm>
+  <dependencies><dependency><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-spring-boot-autoconfigure</artifactId><version>${project.version}</version></dependency></dependencies>
+  <!-- This dependency-only module has no Java sources. Central accepts explanatory attachments. -->
+  <build><plugins>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-source-plugin</artifactId><executions><execution><id>sources</id><phase>none</phase></execution></executions></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-javadoc-plugin</artifactId><executions><execution><id>javadoc</id><phase>none</phase></execution></executions></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><executions>
+      <execution><id>starter-sources</id><phase>package</phase><goals><goal>jar</goal></goals><configuration><classifier>sources</classifier><classesDirectory>${project.basedir}/attachments</classesDirectory></configuration></execution>
+      <execution><id>starter-javadoc</id><phase>package</phase><goals><goal>jar</goal></goals><configuration><classifier>javadoc</classifier><classesDirectory>${project.basedir}/attachments</classesDirectory></configuration></execution>
+    </executions></plugin>
+  </plugins></build>
+</project>

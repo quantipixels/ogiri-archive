@@ -10,11 +10,12 @@
   <licenses><license><name>Apache License 2.0</name><url>https://www.apache.org/licenses/LICENSE-2.0</url></license></licenses>
   <developers><developer><id>quantipixels</id><name>Quanti Pixels</name></developer></developers>
   <scm><url>https://github.com/quantipixels/ogiri</url><connection>scm:git:https://github.com/quantipixels/ogiri.git</connection></scm>
-  <modules><module>ogiri</module><module>ogiri-spring-boot-autoconfigure</module><module>ogiri-spring-boot-starter</module></modules>
+  <modules><module>ogiri-bom</module><module>ogiri</module><module>ogiri-spring-boot-autoconfigure</module><module>ogiri-spring-boot-starter</module></modules>
   <properties>
     <ogiri.checks.dir>${maven.multiModuleProjectDirectory}/ogiri/checks</ogiri.checks.dir><ogiri.excludedGroups>database</ogiri.excludedGroups><maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.build.outputTimestamp>2026-09-07T00:00:00Z</project.build.outputTimestamp>
+    <!-- Runtime compatibility: Spring Boot 4.x, Java 17+, Jackson 3. Build tools require Java 21+. -->
     <spring-boot.version>4.1.1</spring-boot.version>
     <jackson.version>3.1.7</jackson.version><ogiri.test.jvm>${java.home}/bin/java</ogiri.test.jvm>
     <tomcat.version>11.0.26</tomcat.version>
@@ -52,7 +53,7 @@
   </plugins></build>
   <profiles>
     <profile><id>release</id>
-      <properties><central.skipPublishing>true</central.skipPublishing></properties>
+      <properties><central.skipPublishing>true</central.skipPublishing><central.autoPublish>false</central.autoPublish><central.waitUntil>validated</central.waitUntil></properties>
       <build><plugins>
         <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-gpg-plugin</artifactId><version>3.2.8</version>
           <configuration><bestPractices>true</bestPractices></configuration>
@@ -60,7 +61,7 @@
         </plugin>
         <plugin><groupId>org.sonatype.central</groupId><artifactId>central-publishing-maven-plugin</artifactId><version>0.11.0</version>
           <extensions>true</extensions><configuration>
-            <publishingServerId>central</publishingServerId><autoPublish>false</autoPublish>
+            <publishingServerId>central</publishingServerId><autoPublish>${central.autoPublish}</autoPublish><waitUntil>${central.waitUntil}</waitUntil>
             <skipPublishing>${central.skipPublishing}</skipPublishing>
           </configuration>
         </plugin>

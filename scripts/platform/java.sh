@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mode=${1:?task mode required}
-shift
+mode=${1:-check}
+if (($#)); then shift; fi
+export OGIRI_TEST_DATABASE=${OGIRI_TEST_DATABASE:-postgresql}
+if [[ "$OGIRI_TEST_DATABASE" == mysql ]]; then
+    export OGIRI_TEST_JDBC_URL=${OGIRI_TEST_JDBC_URL:-"jdbc:mysql://localhost:3306/ogiri_test?allowPublicKeyRetrieval=true&sslMode=DISABLED&socketTimeout=10000"}
+else
+    export OGIRI_TEST_JDBC_URL=${OGIRI_TEST_JDBC_URL:-"jdbc:postgresql://localhost:5432/ogiri_test?socketTimeout=10"}
+fi
+export OGIRI_TEST_JDBC_USER=${OGIRI_TEST_JDBC_USER:-ogiri}
+export OGIRI_TEST_JDBC_PASSWORD=${OGIRI_TEST_JDBC_PASSWORD:-ogiri}
 test_java=$(mise where java@temurin-17.0.17+10)
 maven=(mise exec java@25.0.2 -- "$PWD/ogiri/mvnw" --batch-mode --no-transfer-progress "-Dogiri.test.jvm=$test_java/bin/java" "-Dogiri.checks.dir=$PWD/ogiri/checks")
 consumer=(-s "$PWD/target/java/consumer-settings.xml" -f "$PWD/examples/spring-app/pom.xml")
@@ -17,33 +25,7 @@ schemas() {
 }
 
 stage() {
-    python3 - <<'PY'
-from pathlib import Path
-import shutil
-import xml.etree.ElementTree as ET
-ns={'m':'http://maven.apache.org/POM/4.0.0'}
-version=ET.parse('pom.xml').find('m:version',ns).text
-cache=Path('target/java/consumer-cache').resolve()
-for name in ('ogiri-parent','ogiri','ogiri-spring-boot-autoconfigure','ogiri-spring-boot-starter'):
-    dest=cache/'com/quantipixels/ogiri'/name/version
-    dest.mkdir(parents=True,exist_ok=True)
-    shutil.copyfile('pom.xml' if name=='ogiri-parent' else f'{name}/pom.xml',dest/f'{name}-{version}.pom')
-    if name != 'ogiri-parent':
-        shutil.copyfile(f'{name}/target/{name}-{version}.jar',dest/f'{name}-{version}.jar')
-settings=ET.Element('settings',xmlns='http://maven.apache.org/SETTINGS/1.2.0')
-ET.SubElement(settings,'localRepository').text=str(cache)
-profile=ET.SubElement(ET.SubElement(settings,'profiles'),'profile')
-ET.SubElement(profile,'id').text='read-only-shared-cache'
-ET.SubElement(ET.SubElement(profile,'activation'),'activeByDefault').text='true'
-for section,entry in [('repositories','repository'),('pluginRepositories','pluginRepository')]:
-    repo=ET.SubElement(ET.SubElement(profile,section),entry)
-    ET.SubElement(repo,'id').text='shared-cache'
-    ET.SubElement(repo,'url').text=(Path.home()/'.m2/repository').as_uri()
-    for policy in ('releases','snapshots'):
-        ET.SubElement(ET.SubElement(repo,policy),'checksumPolicy').text='ignore'
-ET.ElementTree(settings).write('target/java/consumer-settings.xml',encoding='unicode',xml_declaration=True)
-print('consumer: project artifacts staged; no mvn install')
-PY
+    python3 scripts/java-artifacts.py stage
 }
 
 verify() {
@@ -63,8 +45,13 @@ sbom() {
     osv-scanner scan source --format=json -L target/library.cdx.json -L target/consumer.cdx.json --output-file target/vulnerabilities.json
 }
 release() {
-    "${maven[@]}" -Prelease -Dgpg.skip=true -DskipTests verify org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy -DaltDeploymentRepository="rehearsal::file://$PWD/target/release-repository"
+    mkdir -p target
+    local repository
+    repository=$(mktemp -d "$PWD/target/release-repository.XXXXXX")
+    "${maven[@]}" -Prelease -Dgpg.skip=true -DskipTests verify org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy -DaltDeploymentRepository="rehearsal::file://$repository"
+    python3 scripts/java-artifacts.py bundle "$repository"
 }
+
 case "$mode" in
 check) verify ;;
 ci)

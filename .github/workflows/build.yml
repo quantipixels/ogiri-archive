@@ -118,6 +118,7 @@ jobs:
             **/target/benchmark-*.json
             target/ogiri-unsigned-bundle.zip
             ogiri/target/*.jar
+            ogiri-spring-boot-autoconfigure/target/*.jar
             ogiri-spring-boot-starter/target/*.jar
           retention-days: 7
 

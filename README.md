@@ -4,7 +4,9 @@ Ogiri provides opaque bearer sessions: no JWTs and immediate server-side revocat
 
 ## Spring Boot library
 
-Ogiri consists of the Maven modules [`ogiri`](ogiri/), [`ogiri-spring-boot-autoconfigure`](ogiri-spring-boot-autoconfigure/) and [`ogiri-spring-boot-starter`](ogiri-spring-boot-starter/). It follows the [protocol](contracts/PROTOCOL.md), verified by the Python [HTTP conformance suite](contracts/conformance/), and supports **Spring Boot 4.1 / Java 17+**, with **PostgreSQL and MySQL 8+**.
+Ogiri consists of the Maven modules [`ogiri`](ogiri/), [`ogiri-spring-boot-autoconfigure`](ogiri-spring-boot-autoconfigure/) and [`ogiri-spring-boot-starter`](ogiri-spring-boot-starter/). It follows the [protocol](contracts/PROTOCOL.md), verified by the Python [HTTP conformance suite](contracts/conformance/), and supports **Spring Boot 4.x / Java 17+ / Jackson 3**, with **PostgreSQL and MySQL 8+**.
+
+Compatibility baseline: Boot 4.1.1 and Jackson 3.1.7; Java 17 bytecode/runtime, Java 21+ build tools (the gate selects JDK 25). Boot 3 and Jackson 2 are unsupported. Other Boot 4.x versions require application integration verification.
 
 Use the [auth-design skill](skills/auth-design/SKILL.md) to plan an application’s authentication and authorisation.
 
@@ -23,6 +25,8 @@ The Spring prototype implements sign-in, sign-out, validation, devices, registra
 ```
 
 The dependency-only starter is a conventional JAR. The prototype is not published yet. The repository's `bash scripts/platform/java.sh ci` builds the project and tests an independent consumer using an isolated artifact cache. It does not install third-party artifacts into your Maven cache. Add PostgreSQL or MySQL's JDBC driver to your application and configure `spring.datasource.*` normally. Runtime dependency versions in the sample and library manage Jackson 3.1.7 and Tomcat 11.0.26; an adopter's dependency management must also retain those patched versions.
+
+Import `com.quantipixels.ogiri:ogiri-bom:0.0.1` as a Maven `pom` dependency with `import` scope in `dependencyManagement` to align the three Ogiri libraries without adopting the Ogiri build parent. The BOM manages only Ogiri coordinates; keep the host Boot/Jackson/Tomcat dependency management current.
 
 Apply `META-INF/ogiri/ogiri-postgresql.sql` or `ogiri-mysql.sql` from the core JAR through an application-owned migration. For a new application, also apply the corresponding `users-<engine>.sql`. Existing Devise users tables can be retained; normalize migrated email values as Devise does. Ogiri ignores the old users.tokens column and never runs DDL at startup. Existing DTA session tokens require a new sign-in. Plain Devise bcrypt hashes verify unchanged; new hashes remain plain bcrypt, cost 12, with the bcrypt UTF-8 72-byte truncation rule.
 

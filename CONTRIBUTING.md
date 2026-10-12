@@ -7,6 +7,8 @@ mise install
 mise run hooks # runs lefthook install
 ```
 
+Run `mise run db:up` for the pinned, localhost-only disposable databases, then `mise run ci:java` (PostgreSQL) or `OGIRI_TEST_DATABASE=mysql mise run ci:java`; `mise run db:down` removes their volumes. The Java gate defaults to these dev-only credentials and URLs; explicit `OGIRI_TEST_JDBC_*` variables override them.
+
 Use a **disposable** PostgreSQL or MySQL database. Tests drop/recreate `ogiri_sessions` and `ogiri_subject_locks`; never use a valuable database. Keep the existing test environment variables:
 
 ```sh
@@ -19,7 +21,7 @@ mise run check:full  # database/consumer tests, SBOM/OSV, release rehearsal and 
 mise run fix        # formatters and safe lint fixes
 ```
 
-The Java fast check is `mvn verify` and needs the database. The Python suite in `contracts/conformance/` tests the Spring application's HTTP protocol and compatibility with the pinned Rails reference. `check:full` also uses `psql`/`mysql` and `unzip` for the packaged-schema rehearsal. CI provides isolated database services; never run suites concurrently against the same schema.
+The Java fast check is `mvn verify` with database-tagged tests excluded; it needs no database. The Python suite in `contracts/conformance/` tests the Spring application's HTTP protocol and compatibility with the pinned Rails reference. `check:full` also uses `psql`/`mysql` and `unzip` for the packaged-schema rehearsal. CI provides isolated database services; never run suites concurrently against the same schema.
 
 Pre-commit runs `mise run check:staged`: gitleaks, workflow/shell checks, whitespace and Java formatting against staged snapshots. It never formats unstaged files. Pre-push runs `mise run check`. Gitleaks scans the checkout's complete reachable history; `.github/.gitleaksignore` records only exact historical documentation/test-fixture fingerprints with reasons. New secret findings fail the gate.
 

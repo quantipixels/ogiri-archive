@@ -82,3 +82,11 @@ run = "bash scripts/platform/java.sh ci"
 
 [tasks."codeql:build"]
 run = "bash scripts/platform/java.sh codeql"
+
+[tasks."db:up"]
+description = "Start disposable PostgreSQL and MySQL on localhost"
+run = "docker compose up -d --wait"
+
+[tasks."db:down"]
+description = "Remove local test databases and their disposable volumes"
+run = "docker compose down --volumes"

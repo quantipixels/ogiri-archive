@@ -1,0 +1,34 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.quantipixels.ogiri</groupId><version>0.0.1</version>
+  <artifactId>ogiri-bom</artifactId>
+  <packaging>pom</packaging>
+  <name>Ogiri BOM</name>
+  <description>Spring Boot 4 opaque sessions backed by PostgreSQL or MySQL.</description>
+  <url>https://github.com/quantipixels/ogiri</url>
+  <licenses><license><name>Apache License 2.0</name><url>https://www.apache.org/licenses/LICENSE-2.0</url></license></licenses>
+  <developers><developer><id>quantipixels</id><name>Quanti Pixels</name></developer></developers>
+  <scm><url>https://github.com/quantipixels/ogiri</url><connection>scm:git:https://github.com/quantipixels/ogiri.git</connection></scm>
+  <dependencyManagement><dependencies>
+    <dependency><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-spring-boot-autoconfigure</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-spring-boot-starter</artifactId><version>${project.version}</version></dependency>
+  </dependencies></dependencyManagement>
+  <profiles>
+    <profile><id>release</id>
+      <properties><central.skipPublishing>true</central.skipPublishing><central.autoPublish>false</central.autoPublish><central.waitUntil>validated</central.waitUntil></properties>
+      <build><plugins>
+        <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-gpg-plugin</artifactId><version>3.2.8</version>
+          <configuration><bestPractices>true</bestPractices></configuration>
+          <executions><execution><id>sign</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions>
+        </plugin>
+        <plugin><groupId>org.sonatype.central</groupId><artifactId>central-publishing-maven-plugin</artifactId><version>0.11.0</version>
+          <extensions>true</extensions><configuration>
+            <publishingServerId>central</publishingServerId><autoPublish>${central.autoPublish}</autoPublish><waitUntil>${central.waitUntil}</waitUntil>
+            <skipPublishing>${central.skipPublishing}</skipPublishing>
+          </configuration>
+        </plugin>
+      </plugins></build>
+    </profile>
+  </profiles>
+</project>
