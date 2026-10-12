@@ -1,6 +1,67 @@
-# Spring Boot v2 consumer
+# Spring Boot 4 consumer
 
 This application consumes the public Ogiri starter API. The default Devise-table AccountStore owns auth behavior; the sample supplies only role mapping, configuration and protected GET /me and GET /admin routes. Set `OGIRI_ACCOUNT_VIEW_FIELDS=role` to expose role through `ogiri.account.columns`; the default wire view remains the protocol allowlist. The principal is OgiriAccount, with ordinary Spring method security; no UserDetailsService/securityUser adapter is required.
+
+## Use Ogiri in your application
+
+Use Java 17+ and Spring Boot's `spring-boot-starter-parent` 4.1.1. Import the
+Ogiri BOM and add the starter and your database driver:
+
+```xml
+<dependencyManagement><dependencies>
+  <dependency>
+    <groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-bom</artifactId>
+    <version>0.0.1</version><type>pom</type><scope>import</scope>
+  </dependency>
+</dependencies></dependencyManagement>
+<dependencies>
+  <dependency>
+    <groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-spring-boot-starter</artifactId>
+  </dependency>
+  <dependency>
+    <groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope>
+  </dependency>
+</dependencies>
+```
+
+For MySQL, use `com.mysql:mysql-connector-j` instead of the PostgreSQL driver.
+Boot manages driver, Jackson and plugin versions. This sample keeps only the
+`tomcat.version=11.0.26` dependency override: Boot 4.1.1 defaults to 11.0.24,
+which predates the security fixes recorded in the root POM. The Ogiri BOM aligns
+Ogiri artifacts; it does not import Ogiri's build plugins or dependency overrides.
+
+Configure your application's datasource and mail server, for example:
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/ogiri_test
+spring.datasource.username=ogiri
+spring.datasource.password=ogiri
+spring.mail.host=localhost
+spring.mail.port=1025
+ogiri.public-base-url=http://localhost:8080
+```
+
+Use application-owned migrations to apply `META-INF/ogiri/users-postgresql.sql`
+and `META-INF/ogiri/ogiri-postgresql.sql` from the Ogiri JAR (or the `-mysql.sql`
+variants). Ogiri performs no startup DDL. This sample also configures an `admins`
+account table; provision that table when running its additional realm.
+
+For disposable databases from this checkout:
+
+```sh
+mise run db:up
+mise exec -- bash scripts/platform/java.sh ci
+mise run db:down
+```
+
+To isolate concurrent work, set `COMPOSE_PROJECT_NAME`, `OGIRI_PG_PORT` and
+`OGIRI_MYSQL_PORT` for all three commands. Set `OGIRI_TEST_DATABASE=mysql` to
+run the gate against MySQL. The gate builds the library, stages its artifacts
+into `target/java/consumer-cache`, then builds this Boot-parent application
+using that repository; no published release or `mvn install` is required.
+Database tests create their disposable schema. For a normal external build,
+resolve the Ogiri artifacts from your configured Maven repository and run
+`mvn verify` in your application.
 
 ## Build and run through the conformance runner
 
@@ -43,7 +104,7 @@ curl -i -X DELETE "$BASE_URL/auth/sign_out" \
 
 DTA clients replay **access-token/client/uid**. **Authorization: Bearer base64(JSON)** is an alternative encoding of those credentials, not a JWT; the response provides a complete header ready to replay. No X-Requested-With header is required. Sign-in returns an account JSON object and credentials in headers, rather than session metadata in the body.
 
-The sample implements the [runner environment interface](../../contracts/conformance/README.md#sample-env-interface). MySQL consumer proof uses its JDBC URL and `OGIRI_TEST_DATABASE=mysql`; the current conformance runner's database mutation adapter supports PostgreSQL. The library/sample manage Jackson 3.1.7 and Tomcat 11.0.26, and the SBOM gate scans both resolved graphs.
+The sample implements the [runner environment interface](../../contracts/conformance/README.md#sample-env-interface). MySQL consumer proof uses its JDBC URL and `OGIRI_TEST_DATABASE=mysql`; the current conformance runner's database mutation adapter supports PostgreSQL. The sample uses Boot-managed Jackson and the Tomcat override documented above; the SBOM gate scans both library and consumer resolved graphs.
 
 Account views use the protocol default allowlist. Set `OGIRI_ACCOUNT_VIEW_FIELDS=role` to expose the fixture role explicitly; authority mapping always reads it independently.
 

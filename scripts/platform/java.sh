@@ -34,7 +34,7 @@ verify() {
 }
 consumer_check() {
     stage
-    "${maven[@]}" "${consumer[@]}" -Pmysql -Dogiri.excludedGroups= verify
+    "${maven[@]}" "${consumer[@]}" -Pmysql "-Djvm=$test_java/bin/java" verify
 }
 sbom() {
     stage
@@ -78,9 +78,8 @@ codeql)
     ;;
 staged) "${maven[@]}" spotless:check checkstyle:check ;;
 fix)
-    "${maven[@]}" spotless:apply
-    stage
-    "${maven[@]}" "${consumer[@]}" spotless:apply
+    # The standalone BOM has no Java sources or formatter configuration.
+    "${maven[@]}" -pl '!ogiri-bom' spotless:apply
     ;;
 *)
     echo "unknown Java task: $mode" >&2
