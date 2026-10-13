@@ -1,11 +1,119 @@
-# Independent Spring Boot consumer
+# Spring Boot 4 consumer
 
-The only authentication-related application bean is the demo `UserDetailsService`. The example opts into Ogiri with `ogiri.enabled=true`; the starter then supplies pooling dependencies, session service, metadata, native security integration and JSON endpoints. In a real application, replace the in-memory directory with your existing account directory.
+This application consumes the public Ogiri starter API. The default Devise-table AccountStore owns auth behavior; the sample supplies only role mapping, configuration and protected GET /me and GET /admin routes. Set `OGIRI_ACCOUNT_VIEW_FIELDS=role` to expose role through `ogiri.account.columns`; the default wire view remains the protocol allowlist. The principal is OgiriAccount, with ordinary Spring method security; no UserDetailsService/securityUser adapter is required.
 
-Install the library first. Provision `META-INF/ogiri/schema-postgresql.sql` or `schema-mysql.sql` from the installed core JAR through your own migration. Set `OGIRI_JDBC_URL`, `OGIRI_JDBC_USER`, `OGIRI_JDBC_PASSWORD`, and `OGIRI_DEMO_PASSWORD`, then run `mvn spring-boot:run` here. For MySQL add `-Pmysql`; the example's PostgreSQL runtime dependency can be removed in a MySQL application.
+## Use Ogiri in your application
 
-Sign in with `POST /auth/sign-in`, JSON username `demo`, your password and a client label; include `X-Requested-With: Ogiri`. Use the returned Authorization header for `/me`, `/auth/session` and `/auth/sessions`. `/admin` demonstrates method-level role denial.
+Use Java 17+ and Spring Boot's `spring-boot-starter-parent` 4.1.1. Import the
+Ogiri BOM and add the starter and your database driver:
 
-`ConsumerTest` verifies the default path with a one-connection pool. `ServletPathConsumerTest` verifies login with a context path, MVC servlet prefix and custom Ogiri base path. `HostChainTest` demonstrates two application-owned chains, a custom tenant/ID mapping, disabled endpoints, preserved CSRF and directory outages. Neither test assumes H2 represents a production database.
+```xml
+<dependencyManagement><dependencies>
+  <dependency>
+    <groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-bom</artifactId>
+    <version>0.0.1</version><type>pom</type><scope>import</scope>
+  </dependency>
+</dependencies></dependencyManagement>
+<dependencies>
+  <dependency>
+    <groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-spring-boot-starter</artifactId>
+  </dependency>
+  <dependency>
+    <groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope>
+  </dependency>
+</dependencies>
+```
 
-Configure driver-specific socket timeouts in the JDBC URL: PostgreSQL uses `socketTimeout=10` for ten seconds, while MySQL uses `socketTimeout=10000`. The common application properties intentionally do not set a driver-specific socket timeout. See [pgJDBC parameters](https://jdbc.postgresql.org/documentation/use/) and [Connector/J networking](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-networking.html).
+For MySQL, use `com.mysql:mysql-connector-j` instead of the PostgreSQL driver.
+Boot manages driver, Jackson and plugin versions. This sample keeps only the
+`tomcat.version=11.0.26` dependency override: Boot 4.1.1 defaults to 11.0.24,
+which predates the security fixes recorded in the root POM. The Ogiri BOM aligns
+Ogiri artifacts; it does not import Ogiri's build plugins or dependency overrides.
+
+Configure your application's datasource and mail server, for example:
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/ogiri_test
+spring.datasource.username=ogiri
+spring.datasource.password=ogiri
+spring.mail.host=localhost
+spring.mail.port=1025
+ogiri.public-base-url=http://localhost:8080
+```
+
+Use application-owned migrations to apply `META-INF/ogiri/users-postgresql.sql`
+and `META-INF/ogiri/ogiri-postgresql.sql` from the Ogiri JAR (or the `-mysql.sql`
+variants). Ogiri performs no startup DDL. This sample also configures an `admins`
+account table; provision that table when running its additional realm.
+
+For disposable databases from this checkout:
+
+```sh
+mise run db:up
+mise exec -- bash scripts/platform/java.sh ci
+mise run db:down
+```
+
+To isolate concurrent work, set `COMPOSE_PROJECT_NAME`, `OGIRI_PG_PORT` and
+`OGIRI_MYSQL_PORT` for all three commands. Set `OGIRI_TEST_DATABASE=mysql` to
+run the gate against MySQL. The gate builds the library, stages its artifacts
+into `target/java/consumer-cache`, then builds this Boot-parent application
+using that repository; no published release or `mvn install` is required.
+Database tests create their disposable schema. For a normal external build,
+resolve the Ogiri artifacts from your configured Maven repository and run
+`mvn verify` in your application.
+
+## Build and run through the conformance runner
+
+From the repository root:
+
+```sh
+bash scripts/platform/java.sh check
+bash scripts/platform/java.sh sample
+contracts/conformance/run.sh --profile default \
+  --sample-command 'mise exec java@temurin-17.0.17+10 -- python3 examples/spring-app/run.py' \
+  -- -k 'test_S1_json_and_form_signin or test_R1_signup or test_R10_destroy_account_all_clients'
+```
+
+The runner supplies PORT, OGIRI_DATABASE_URL, SMTP and protocol settings, creates a disposable PostgreSQL/Mailpit fixture, starts the sample, exercises it and stops its process group and containers. `run.py` converts the runner's PostgreSQL URL into JDBC configuration and launches the packaged JAR. The selected tests exercise sign-in, registration and account deletion. Broader profiles become usable as their implementation checkpoints land.
+
+For a manually managed disposable database, apply the packaged ogiri/users schemas and the shared devise-users fixture, then set OGIRI_DATABASE_URL (PostgreSQL URL or JDBC URL), OGIRI_JDBC_USER/OGIRI_JDBC_PASSWORD when using JDBC, OGIRI_SMTP_HOST/OGIRI_SMTP_PORT and PORT. Start with `mise exec java@temurin-17.0.17+10 -- python3 examples/spring-app/run.py`. Stop that process when finished. Production schema migrations are application-owned; Ogiri performs no startup DDL.
+
+The demo profile recreates disposable users/session fixtures. It must only be used on a throwaway database. `bash scripts/platform/java.sh ci` drives the installed-artifact consumer tests with OGIRI_TEST_DATABASE, OGIRI_TEST_JDBC_URL, OGIRI_TEST_JDBC_USER and OGIRI_TEST_JDBC_PASSWORD. Those tests also prove a one-connection pool and matching JPA host transactions.
+
+## Try the HTTP flow
+
+Fixture emails demo@example.com and admin@example.com both use password test-password. The default profile has lockout and confirmation off. Set BASE_URL to the running sample's HTTP URL:
+
+```sh
+curl -i "$BASE_URL/auth/sign_in" \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"demo@example.com","password":"test-password"}'
+```
+
+Copy access-token, client and uid from the response headers and send them back:
+
+```sh
+curl -i "$BASE_URL/me" \
+  -H "access-token: $ACCESS_TOKEN" -H "client: $CLIENT" -H "uid: $AUTH_UID"
+curl -i -X DELETE "$BASE_URL/auth/sign_out" \
+  -H "access-token: $ACCESS_TOKEN" -H "client: $CLIENT" -H "uid: $AUTH_UID"
+```
+
+/me returns `{"uid":"demo@example.com"}`; replaying the revoked credentials returns 401. /admin requires the admin role. /auth/validate_token validates the account and /auth/sessions lists clients.
+
+DTA clients replay **access-token/client/uid**. **Authorization: Bearer base64(JSON)** is an alternative encoding of those credentials, not a JWT; the response provides a complete header ready to replay. No X-Requested-With header is required. Sign-in returns an account JSON object and credentials in headers, rather than session metadata in the body.
+
+The sample implements the [runner environment interface](../../contracts/conformance/README.md#sample-env-interface). MySQL consumer proof uses its JDBC URL and `OGIRI_TEST_DATABASE=mysql`; the current conformance runner's database mutation adapter supports PostgreSQL. The sample uses Boot-managed Jackson and the Tomcat override documented above; the SBOM gate scans both library and consumer resolved graphs.
+
+Account views use the protocol default allowlist. Set `OGIRI_ACCOUNT_VIEW_FIELDS=role` to expose the fixture role explicitly; authority mapping always reads it independently.
+
+The additional `/admin_auth` mount reads the application-owned `admins` table and inherits root settings. The conformance runner provisions it; a manually managed database must apply that account-table migration too.
+
+## Cookie mode
+
+Set `OGIRI_COOKIE_ENABLED=true`; the sample uses distinct `auth_cookie` and `admin_auth_cookie` names for its realms. Auth cookies are HttpOnly, SameSite=Lax, Path=/ and Secure by default; set `OGIRI_COOKIE_SECURE=false` only for local HTTP development. Cookie mode omits the Authorization response header.
+
+Before sign-in or registration that signs in (confirmable=false), call an existing safe route such as `GET /auth/sign_in` and read its `XSRF-TOKEN` cookie (the endpoint may return 405). Send that cookie and its value as `X-XSRF-TOKEN` on those requests and on unsafe cookie-authenticated requests. Sign-in and registration that signs in require CSRF even before an auth cookie exists. Batch responses leave the auth cookie unchanged. Complete named DTA headers or Bearer credentials select header authentication and require no cookie CSRF on protected requests. Sign-out and terminal session/account revocation clear the auth cookie.
+
+Use the same cookie path (normally /) across cookie-enabled realms and distinct auth cookie names, as this sample does. XSRF-TOKEN/X-XSRF-TOKEN are shared across realms: differing paths can send duplicate XSRF-TOKEN cookies, and Spring taking the first while the browser echoes another causes 403. Per-realm CSRF names are not supported.

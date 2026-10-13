@@ -1,8 +1,8 @@
 name: Build
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
-    branches: [ori]
   schedule:
     - cron: '31 5 * * 1'
   workflow_dispatch:
@@ -11,29 +11,59 @@ on:
         description: Measure local session lookup performance
         type: boolean
         default: false
-permissions:
-  contents: read
+permissions: {}
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
-  verify:
-    name: Java ${{ matrix.java }} / ${{ matrix.image }}
+  repo:
+    name: Repository checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      MISE_ENABLE_TOOLS: python,actionlint,zizmor,gitleaks,osv-scanner,shellcheck,shfmt
+      GATE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      GATE_FORCE_FULL: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.action == 'ready_for_review' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    outputs:
+      java: ${{ steps.paths.outputs.java }}
+      parity: ${{ steps.paths.outputs.parity }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          version: 2026.8.10
+          cache: false
+      - id: paths
+        run: mise run ci:paths
+      - run: mise run check:repo
+
+  java:
+    needs: repo
+    if: needs.repo.outputs.java == 'true'
+    name: Java ${{ matrix.java }} / ${{ matrix.database }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        java: ['17', '25']
+        java: ['temurin-17.0.17+10', '25.0.2']
         database: [postgresql, mysql]
         include:
           - database: postgresql
-            image: postgres:16
+            image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
             port: 5432
             health: pg_isready -U ogiri -d ogiri_test
             url: jdbc:postgresql://localhost:5432/ogiri_test?socketTimeout=10
           - database: mysql
-            image: mysql:8.4
+            image: mysql:8.4@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
             port: 3306
             health: mysqladmin ping -h 127.0.0.1
             url: jdbc:mysql://localhost:3306/ogiri_test?allowPublicKeyRetrieval=true&sslMode=DISABLED&socketTimeout=10000
@@ -54,6 +84,8 @@ jobs:
           --health-cmd "${{ matrix.health }}"
           --health-interval 5s --health-timeout 5s --health-retries 30
     env:
+      MISE_ENABLE_TOOLS: java,maven,python,osv-scanner
+      MISE_JAVA_VERSION: ${{ matrix.java }}
       OGIRI_TEST_DATABASE: ${{ matrix.database }}
       OGIRI_TEST_JDBC_URL: ${{ matrix.url }}
       OGIRI_TEST_JDBC_USER: ogiri
@@ -62,102 +94,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v5
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
-          distribution: temurin
-          java-version: ${{ matrix.java }}
-          cache: maven
-      - name: Verify and install the library artifacts
-        run: mvn -B -ntp clean install
-      - name: Apply the schema from the built JAR
-        env:
-          PGPASSWORD: ogiri
-          MYSQL_PWD: ogiri
-        run: |
-          set -euo pipefail
-          version=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
-          jar="ogiri/target/ogiri-$version.jar"
-          if [ "$OGIRI_TEST_DATABASE" = postgresql ]; then
-            psql -h localhost -U ogiri -d ogiri_test -v ON_ERROR_STOP=1 -c 'DROP TABLE ogiri_sessions, ogiri_subject_locks'
-            unzip -p "$jar" META-INF/ogiri/schema-postgresql.sql | psql -h localhost -U ogiri -d ogiri_test -v ON_ERROR_STOP=1
-          else
-            mysql -h 127.0.0.1 -u ogiri ogiri_test -e 'DROP TABLE ogiri_sessions, ogiri_subject_locks'
-            unzip -p "$jar" META-INF/ogiri/schema-mysql.sql | mysql -h 127.0.0.1 -u ogiri ogiri_test
-          fi
-      - name: Verify independently resolved Boot consumers over HTTP and JPA
-        run: mvn -B -ntp -Pmysql -f examples/spring-app/pom.xml verify
-      - name: Inspect package contents and executed test evidence
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          from zipfile import ZipFile
-          import json, xml.etree.ElementTree as E
-          ns={'m':'http://maven.apache.org/POM/4.0.0'}
-          version=E.parse('pom.xml').find('m:version',ns).text
-          results=[]
-          for module in ('ogiri','ogiri-spring-boot-starter','examples/spring-app'):
-              reports=list(Path(module).glob('target/surefire-reports/TEST-*.xml'))
-              assert reports, module
-              for report in reports:
-                  root=E.parse(report).getroot()
-                  counts={k:int(root.get(k,0)) for k in ('tests','failures','errors','skipped')}
-                  assert counts['tests'] and not any(counts[k] for k in ('failures','errors','skipped')), (module,counts)
-                  results.append({'module':module,'suite':root.get('name'),**counts})
-          for module in ('ogiri','ogiri-spring-boot-starter'):
-              for classifier,suffix in [('sources','.java'),('javadoc','.html')]:
-                  with ZipFile(f'{module}/target/{module}-{version}-{classifier}.jar') as jar:
-                      assert any(n.endswith(suffix) for n in jar.namelist()), module
-          with ZipFile(f'ogiri/target/ogiri-{version}.jar') as jar:
-              for vendor in ('postgresql','mysql'): assert f'META-INF/ogiri/schema-{vendor}.sql' in jar.namelist()
-              assert not any(n.startswith('db/migration/') for n in jar.namelist())
-          with ZipFile(f'ogiri-spring-boot-starter/target/ogiri-spring-boot-starter-{version}.jar') as jar:
-              metadata=json.loads(jar.read('META-INF/spring-configuration-metadata.json'))
-              names={p['name'] for p in metadata['properties']}
-              assert {'ogiri.enabled','ogiri.base-path','ogiri.endpoints-enabled','ogiri.lifetime','ogiri.maximum-sessions','ogiri.realm'} <= names
-              imports=jar.read('META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports').decode()
-              assert 'com.quantipixels.ogiri.spring.OgiriAutoConfiguration' in imports
-          Path('target').mkdir(exist_ok=True)
-          Path('target/verification.json').write_text(json.dumps(results,indent=2)+'\n')
-          print(json.dumps(results,indent=2))
-          PY
-      - name: Optional local session lookup benchmark
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark }}
-        run: >-
-          mvn -B -ntp -pl ogiri org.codehaus.mojo:exec-maven-plugin:3.5.0:java
-          -Dexec.mainClass=com.quantipixels.ogiri.JdbcSessionsBenchmark -Dexec.classpathScope=test
-      - name: Inventory resolved runtime dependencies
-        if: ${{ matrix.java == '17' && matrix.database == 'postgresql' }}
-        run: |
-          mvn -B -ntp org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom -DincludeTestScope=false
-          mvn -B -ntp -Pmysql -f examples/spring-app/pom.xml org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom -DincludeTestScope=false
-          cp target/bom.json target/library.cdx.json
-          cp examples/spring-app/target/bom.json target/consumer.cdx.json
-      - name: Check runtime components against OSV
-        if: ${{ matrix.java == '17' && matrix.database == 'postgresql' }}
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error --location https://github.com/google/osv-scanner/releases/download/v2.5.1/osv-scanner_linux_amd64 -o "$RUNNER_TEMP/osv-scanner"
-          echo "f9f25499a2c8cc367b3af45df2ea7eeca7fbccceab9c35079968f4b3652194be  $RUNNER_TEMP/osv-scanner" | sha256sum --check
-          chmod +x "$RUNNER_TEMP/osv-scanner"
-          "$RUNNER_TEMP/osv-scanner" scan source --format=json -L target/library.cdx.json -L target/consumer.cdx.json > target/vulnerabilities.json
+          version: 2026.8.10
+          cache: false
+      - run: mise run ci:java
+      - name: Inventory and scan resolved runtime dependencies
+        if: matrix.java == 'temurin-17.0.17+10' && matrix.database == 'postgresql'
+        run: mise run check:java:sbom
       - name: Rehearse the unsigned local Central bundle
-        if: ${{ matrix.java == '17' && matrix.database == 'postgresql' }}
-        run: |
-          set -euo pipefail
-          mvn -B -ntp -Prelease -Dgpg.skip=true -DskipTests verify \
-            org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy \
-            -DaltDeploymentRepository="rehearsal::file://$PWD/target/release-repository"
-          (cd target/release-repository && zip -qr ../ogiri-unsigned-bundle.zip com -x '*/maven-metadata*')
-          python - <<'PYCODE'
-          from zipfile import ZipFile
-          with ZipFile('target/ogiri-unsigned-bundle.zip') as z:
-              names=z.namelist()
-              assert len([n for n in names if n.endswith('.pom')])==3
-              assert len([n for n in names if n.endswith('.jar')])==6
-              for n in names:
-                  if n.endswith(('.pom','.jar')):
-                      assert n+'.sha1' in names and n+'.md5' in names, n
-          PYCODE
+        if: matrix.java == 'temurin-17.0.17+10' && matrix.database == 'postgresql'
+        run: mise run check:java:release
+      - name: Optional local session lookup benchmark
+        if: github.event_name == 'workflow_dispatch' && inputs.benchmark
+        run: mise run check:java:benchmark
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -168,5 +118,47 @@ jobs:
             **/target/benchmark-*.json
             target/ogiri-unsigned-bundle.zip
             ogiri/target/*.jar
+            ogiri-spring-boot-autoconfigure/target/*.jar
             ogiri-spring-boot-starter/target/*.jar
           retention-days: 7
+
+  parity:
+    name: Spring HTTP conformance
+    needs: repo
+    if: needs.repo.outputs.parity == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      MISE_ENABLE_TOOLS: python,uv,node,java,maven
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          version: 2026.8.10
+          cache: false
+      - run: mise run check:parity
+
+  quality-gates:
+    name: quality-gates
+    if: always()
+    needs: [repo, java, parity]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      MISE_ENABLE_TOOLS: python
+      GATE_RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          version: 2026.8.10
+          cache: false
+      - run: mise run ci:result

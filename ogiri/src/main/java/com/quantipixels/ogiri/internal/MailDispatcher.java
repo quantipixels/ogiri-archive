@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: Apache-2.0
+package com.quantipixels.ogiri.internal;
+
+import com.quantipixels.ogiri.mail.OgiriMailer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
+
+/** Receipts convey AFTER_COMMIT delivery failure without rolling back committed credentials. */
+public final class MailDispatcher {
+    private static final Logger LOG = LoggerFactory.getLogger(MailDispatcher.class);
+
+    public enum Kind {
+        RESET,
+        CONFIRMATION,
+        UNLOCK
+    }
+
+    private final ApplicationEventPublisher events;
+    private final OgiriMailer mailer;
+
+    public MailDispatcher(ApplicationEventPublisher events, OgiriMailer mailer) {
+        this.events = events;
+        this.mailer = mailer;
+    }
+
+    public static final class Receipt {
+        private final OgiriMailer mailer;
+        private boolean delivered;
+
+        private Receipt(OgiriMailer mailer) {
+            this.mailer = mailer;
+        }
+
+        public void verify(boolean paranoid) {
+            if (!delivered && !paranoid) throw new DtaFailure(503, DtaFailure.unavailable());
+        }
+    }
+
+    public record Intent(Kind kind, String recipient, String link, Receipt receipt) {
+        @Override
+        public String toString() {
+            return "OgiriMailIntent[redacted]";
+        }
+    }
+
+    public Receipt enqueue(Kind kind, String recipient, String link) {
+        var receipt = new Receipt(mailer);
+        events.publishEvent(new Intent(kind, recipient, link, receipt));
+        return receipt;
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void deliver(Intent intent) {
+        try {
+            switch (intent.kind()) {
+                case RESET ->
+                        intent.receipt().mailer.resetPassword(intent.recipient(), intent.link());
+                case CONFIRMATION ->
+                        intent.receipt().mailer.confirmation(intent.recipient(), intent.link());
+                case UNLOCK -> intent.receipt().mailer.unlock(intent.recipient(), intent.link());
+            }
+            intent.receipt().delivered = true;
+        } catch (Exception failure) {
+            LOG.warn(
+                    "Ogiri mail delivery failed ({})",
+                    intent.kind(),
+                    FailureDiagnostics.redacted(failure));
+        }
+    }
+}

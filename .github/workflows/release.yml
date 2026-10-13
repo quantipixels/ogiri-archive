@@ -1,0 +1,60 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    name: Verify and publish Central artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      MISE_ENABLE_TOOLS: java,maven,python,actionlint,zizmor,gitleaks,osv-scanner,shellcheck,shfmt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          version: 2026.8.10
+          cache: false
+      - name: Require tag to match the immutable POM version
+        run: test "$GITHUB_REF_NAME" = "v$(mise exec -- python scripts/java-artifacts.py version)"
+      - run: mise run check:repo
+      - run: mise run check:java
+      - run: mise run check:java:release
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsigned-release-rehearsal
+          path: target/ogiri-unsigned-bundle.zip
+          if-no-files-found: error
+          retention-days: 7
+      - name: Check existing release credentials
+        id: credentials
+        env:
+          CENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          for name in CENTRAL_USERNAME CENTRAL_PASSWORD GPG_PRIVATE_KEY MAVEN_GPG_PASSPHRASE; do
+            if [[ -z "${!name}" ]]; then
+              echo '::notice::Release credentials incomplete; signing and publication remain inactive.'
+              exit 0
+            fi
+          done
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+      - name: Sign and publish to Central
+        if: steps.credentials.outputs.ready == 'true'
+        env:
+          CENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: mise exec -- bash scripts/platform/publish.sh

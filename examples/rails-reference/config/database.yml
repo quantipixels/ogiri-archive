@@ -1,0 +1,6 @@
+default: &default
+  adapter: postgresql
+  url: <%= ENV.fetch("OGIRI_DATABASE_URL") %>
+  pool: 10
+development:
+  <<: *default

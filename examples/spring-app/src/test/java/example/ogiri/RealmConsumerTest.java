@@ -1,0 +1,428 @@
+// SPDX-License-Identifier: Apache-2.0
+package example.ogiri;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import tools.jackson.databind.json.JsonMapper;
+
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+            "spring.datasource.url=${OGIRI_TEST_JDBC_URL}",
+            "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
+            "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",
+            "spring.datasource.hikari.maximum-pool-size=1",
+            "spring.profiles.active=demo",
+            "ogiri.max-number-of-devices=2",
+            "ogiri.token-lifespan=120s",
+            "ogiri.realms.admins.max-number-of-devices=1"
+        })
+@org.springframework.context.annotation.Import({
+    HostChainTest.Host.class,
+    RealmConsumerTest.RealmMail.class
+})
+class RealmConsumerTest {
+    @Value("${local.server.port}")
+    int port;
+
+    @Autowired JdbcTemplate jdbc;
+    @Autowired com.quantipixels.ogiri.security.OgiriRealms realms;
+
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class RealmMail {
+        @org.springframework.context.annotation.Bean(defaultCandidate = false)
+        com.quantipixels.ogiri.mail.OgiriMailer adminsOgiriMailer() {
+            return org.mockito.Mockito.mock(com.quantipixels.ogiri.mail.OgiriMailer.class);
+        }
+    }
+
+    @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("adminsOgiriMailer")
+    com.quantipixels.ogiri.mail.OgiriMailer adminMailer;
+
+    @Test
+    void realmMailerReceivesRecoveryOnlyAfterItsAccountDigestCommits() throws Exception {
+        String email = "realm-mail-" + java.util.UUID.randomUUID() + "@example.com";
+        assertEquals(200, signup("/admin_auth", email).statusCode());
+        var link = new java.util.concurrent.atomic.AtomicReference<String>();
+        org.mockito.Mockito.doAnswer(
+                        call -> {
+                            String value = call.getArgument(1);
+                            var outside =
+                                    new JdbcTemplate(
+                                            new org.springframework.jdbc.datasource
+                                                    .DriverManagerDataSource(
+                                                    System.getenv("OGIRI_TEST_JDBC_URL"),
+                                                    System.getenv("OGIRI_TEST_JDBC_USER"),
+                                                    System.getenv("OGIRI_TEST_JDBC_PASSWORD")));
+                            String stored =
+                                    outside.queryForObject(
+                                            "SELECT reset_password_token FROM admins WHERE email = ?",
+                                            String.class,
+                                            email);
+                            String token =
+                                    PasswordMailTest.query(value).get("reset_password_token");
+                            String digest =
+                                    java.util.HexFormat.of()
+                                            .formatHex(
+                                                    java.security.MessageDigest.getInstance(
+                                                                    "SHA-256")
+                                                            .digest(
+                                                                    token.getBytes(
+                                                                            java.nio.charset
+                                                                                    .StandardCharsets
+                                                                                    .US_ASCII)));
+                            assertEquals(digest, stored);
+                            link.set(value);
+                            return null;
+                        })
+                .when(adminMailer)
+                .resetPassword(
+                        org.mockito.ArgumentMatchers.eq(email),
+                        org.mockito.ArgumentMatchers.anyString());
+        var response =
+                request(
+                        "POST",
+                        "/admin_auth/password",
+                        Map.of("email", email, "redirect_url", "https://client.example.test/reset"),
+                        null);
+        assertEquals(200, response.statusCode(), response.body());
+        assertNotNull(link.get());
+        assertTrue(link.get().contains("/admin_auth/password/edit?"));
+        org.mockito.Mockito.verify(adminMailer)
+                .resetPassword(
+                        org.mockito.ArgumentMatchers.eq(email),
+                        org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @BeforeEach
+    void schema() {
+        // Demo startup and the admins fixture reuse account IDs across test contexts.
+        jdbc.execute("TRUNCATE TABLE ogiri_sessions");
+        jdbc.execute("TRUNCATE TABLE ogiri_subject_locks");
+        jdbc.execute("DROP TABLE IF EXISTS admins");
+        if ("mysql".equals(System.getenv("OGIRI_TEST_DATABASE")))
+            jdbc.execute("CREATE TABLE admins LIKE users");
+        else {
+            jdbc.execute("CREATE TABLE admins (LIKE users INCLUDING ALL)");
+            jdbc.execute("ALTER TABLE admins ALTER COLUMN id DROP DEFAULT");
+            jdbc.execute("ALTER TABLE admins ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY");
+        }
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void removeOwnedAccountTable() {
+        jdbc.execute("DROP TABLE IF EXISTS admins");
+    }
+
+    @Test
+    void mountsShareAnEmailButNeverIdentityOrClientsAndInheritRootPolicy() throws Exception {
+        var root = realms.defaultRealm().settings();
+        var admin = realms.additional().get(0).settings();
+        assertEquals(root.tokenLifespan(), admin.tokenLifespan());
+        assertEquals(1, admin.maxNumberOfDevices());
+        assertEquals(2, root.maxNumberOfDevices());
+        String email = "realm-" + java.util.UUID.randomUUID() + "@example.com";
+        var user = signup("/auth", email);
+        var owner = signup("/admin_auth", email);
+        assertEquals(200, user.statusCode(), user.body());
+        assertEquals(200, owner.statusCode(), owner.body());
+        String users = user.headers().firstValue("Authorization").orElseThrow();
+        String admins = owner.headers().firstValue("Authorization").orElseThrow();
+        assertEquals(200, request("GET", "/auth/validate_token", null, users).statusCode());
+        assertEquals(200, request("GET", "/admin_auth/validate_token", null, admins).statusCode());
+        assertEquals(401, request("GET", "/admin_auth/validate_token", null, users).statusCode());
+        assertEquals(401, request("GET", "/auth/validate_token", null, admins).statusCode());
+        var again =
+                request(
+                        "POST",
+                        "/admin_auth/sign_in",
+                        Map.of("email", email, "password", "test-password"),
+                        null);
+        assertEquals(200, again.statusCode(), again.body());
+        assertEquals(401, request("GET", "/admin_auth/validate_token", null, admins).statusCode());
+        assertEquals(200, request("GET", "/auth/validate_token", null, users).statusCode());
+        assertEquals(
+                200,
+                request(
+                                "DELETE",
+                                "/admin_auth",
+                                null,
+                                again.headers().firstValue("Authorization").orElseThrow())
+                        .statusCode());
+        assertEquals(
+                1,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM users WHERE email = ?", Integer.class, email));
+        assertEquals(
+                0,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM admins WHERE email = ?", Integer.class, email));
+    }
+
+    @Test
+    void emailProviderUidFollowsEmailAndOtherProviderUidSurvivesAnEdit() throws Exception {
+        for (String provider : java.util.List.of("email", "github")) {
+            String email = "a7-" + java.util.UUID.randomUUID() + "@example.com";
+            var created = signup("/auth", email);
+            assertEquals(200, created.statusCode(), created.body());
+            String auth = created.headers().firstValue("Authorization").orElseThrow();
+            String uid =
+                    provider.equals("email") ? email : "provider-" + java.util.UUID.randomUUID();
+            jdbc.update(
+                    "UPDATE users SET provider = ?, uid = ? WHERE email = ?", provider, uid, email);
+            if (!provider.equals("email")) {
+                var credentials =
+                        JsonMapper.builder()
+                                .build()
+                                .readTree(java.util.Base64.getDecoder().decode(auth.substring(7)));
+                auth =
+                        "Bearer "
+                                + java.util.Base64.getEncoder()
+                                        .encodeToString(
+                                                JsonMapper.builder()
+                                                        .build()
+                                                        .writeValueAsBytes(
+                                                                Map.of(
+                                                                        "uid",
+                                                                        uid,
+                                                                        "client",
+                                                                        credentials
+                                                                                .get("client")
+                                                                                .asText(),
+                                                                        "access-token",
+                                                                        credentials
+                                                                                .get("access-token")
+                                                                                .asText())));
+            }
+            String next = "next-" + email;
+            var changed = request("PATCH", "/auth", Map.of("email", next), auth);
+            assertEquals(200, changed.statusCode(), changed.body());
+            assertEquals(
+                    provider.equals("email") ? next : uid,
+                    jdbc.queryForObject(
+                            "SELECT uid FROM users WHERE email = ?", String.class, next));
+            assertEquals(
+                    provider,
+                    jdbc.queryForObject(
+                            "SELECT provider FROM users WHERE email = ?", String.class, next));
+        }
+    }
+
+    @Autowired com.quantipixels.ogiri.account.internal.AccountValidator validator;
+    @Autowired com.quantipixels.ogiri.internal.MailDispatcher mail;
+    @Autowired com.quantipixels.ogiri.internal.PublicLinks links;
+
+    @Test
+    void usersTokenCannotPatchOrDeleteAdminThroughHostChain() throws Exception {
+        var identity = matchingIds();
+        var adminBefore = jdbc.queryForMap("SELECT * FROM admins WHERE id = ?", identity.id());
+        for (String method : java.util.List.of("PATCH", "DELETE")) {
+            var response =
+                    request(
+                            method,
+                            "/admin_auth",
+                            method.equals("PATCH") ? Map.of("name", "taken-over") : null,
+                            identity.authorization());
+            assertEquals(404, response.statusCode(), response.body());
+            String message =
+                    method.equals("PATCH")
+                            ? "User not found."
+                            : "Unable to locate account for destruction.";
+            assertEquals(
+                    Map.of(
+                            "success",
+                            false,
+                            "status",
+                            "error",
+                            "errors",
+                            java.util.List.of(message)),
+                    JsonMapper.builder().build().readValue(response.body(), Map.class));
+            assertEquals(
+                    adminBefore,
+                    jdbc.queryForMap("SELECT * FROM admins WHERE id = ?", identity.id()));
+        }
+    }
+
+    record MatchingIds(long id, String email, String authorization) {}
+
+    private MatchingIds matchingIds() throws Exception {
+        String email = "ownership-" + java.util.UUID.randomUUID() + "@example.com";
+        var user = signup("/auth", email);
+        var admin = signup("/admin_auth", email);
+        assertEquals(200, user.statusCode(), user.body());
+        assertEquals(200, admin.statusCode(), admin.body());
+        long id = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", Long.class, email);
+        jdbc.update("UPDATE admins SET id = ? WHERE email = ?", id, email);
+        return new MatchingIds(id, email, user.headers().firstValue("Authorization").orElseThrow());
+    }
+
+    @Test
+    void foreignPrincipalCannotActOnAdminEndpointsOrServices() throws Exception {
+        var ids = matchingIds();
+        var login = realms.defaultRealm().signIn().signIn(ids.email(), "test-password");
+        var identity =
+                new com.quantipixels.ogiri.security.OgiriAuthentication(
+                        login.account(), login.issued().session());
+        var admin = realms.additional().get(0);
+        var encoder = new com.quantipixels.ogiri.account.internal.DevisePasswordEncoder();
+        var activation =
+                new com.quantipixels.ogiri.account.internal.ActivationService(
+                        admin.accounts(),
+                        admin.transactions(),
+                        admin.sessions(),
+                        admin.settings(),
+                        mail,
+                        links);
+        var registration =
+                new com.quantipixels.ogiri.account.internal.RegistrationService(
+                        admin.accounts(),
+                        admin.transactions(),
+                        admin.sessions(),
+                        admin.settings(),
+                        encoder,
+                        admin.signIn(),
+                        validator,
+                        activation);
+        var passwords =
+                new com.quantipixels.ogiri.account.internal.PasswordService(
+                        admin.accounts(),
+                        admin.transactions(),
+                        admin.sessions(),
+                        admin.settings(),
+                        encoder,
+                        admin.signIn(),
+                        validator,
+                        mail,
+                        links);
+        var endpoints =
+                new com.quantipixels.ogiri.web.internal.OgiriEndpoints(
+                        admin, registration, passwords, activation);
+        var request = new org.springframework.mock.web.MockHttpServletRequest();
+        var response = new org.springframework.mock.web.MockHttpServletResponse();
+        Map<String, Object> password =
+                Map.of("password", "changed-password", "password_confirmation", "changed-password");
+        java.util.List<org.junit.jupiter.api.function.Executable> operations =
+                java.util.List.of(
+                        () ->
+                                endpoints.update(
+                                        Map.of("name", "taken-over"), identity, request, response),
+                        () ->
+                                endpoints.updateForm(
+                                        Map.of("name", "taken-over"), identity, request, response),
+                        () -> endpoints.destroy(identity, request, response),
+                        () -> endpoints.changePassword(password, identity, request, response),
+                        () ->
+                                endpoints.changePasswordForm(
+                                        Map.of(
+                                                "password",
+                                                "changed-password",
+                                                "password_confirmation",
+                                                "changed-password"),
+                                        identity,
+                                        request,
+                                        response),
+                        () -> endpoints.validate(identity),
+                        () -> endpoints.signOut(identity, request, response),
+                        () -> endpoints.list(identity),
+                        () ->
+                                endpoints.revoke(
+                                        identity, identity.session().client(), request, response),
+                        () -> endpoints.revokeAll(identity, request, response),
+                        () ->
+                                registration.update(
+                                        identity.getPrincipal(),
+                                        Map.of("name", "taken-over"),
+                                        identity.session()),
+                        () -> registration.destroy(identity.getPrincipal(), identity.session()),
+                        () ->
+                                passwords.change(
+                                        identity.getPrincipal(), password, identity.session()));
+        for (var operation : operations) {
+            var failure = assertThrows(com.quantipixels.ogiri.internal.DtaFailure.class, operation);
+            assertEquals(401, failure.status());
+        }
+        assertEquals(
+                ids.email(),
+                jdbc.queryForObject(
+                        "SELECT email FROM admins WHERE id = ?", String.class, ids.id()));
+        assertEquals(
+                null,
+                jdbc.queryForObject(
+                        "SELECT name FROM admins WHERE id = ?", String.class, ids.id()));
+        assertEquals(
+                200,
+                request("GET", "/auth/validate_token", null, ids.authorization()).statusCode());
+    }
+
+    @Test
+    void foreignTenantCannotOwnAccount() throws Exception {
+        var ids = matchingIds();
+        var realm = realms.defaultRealm();
+        var login = realm.signIn().signIn(ids.email(), "test-password");
+        var session = login.issued().session();
+        var foreign =
+                new com.quantipixels.ogiri.Session(
+                        session.id(),
+                        new com.quantipixels.ogiri.Subject(
+                                session.subject().realm(),
+                                "foreign-tenant",
+                                session.subject().subjectId()),
+                        session.client(),
+                        session.createdAt(),
+                        session.expiresAt());
+        realm.settings().requireOwner(login.account(), session);
+        var failure =
+                assertThrows(
+                        com.quantipixels.ogiri.internal.DtaFailure.class,
+                        () -> realm.settings().requireOwner(login.account(), foreign));
+        assertEquals(401, failure.status());
+    }
+
+    private HttpResponse<String> signup(String path, String email) throws Exception {
+        return request(
+                "POST",
+                path,
+                Map.of(
+                        "email",
+                        email,
+                        "password",
+                        "test-password",
+                        "password_confirmation",
+                        "test-password"),
+                null);
+    }
+
+    private HttpResponse<String> request(
+            String method, String path, Map<String, String> body, String auth) throws Exception {
+        var builder =
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                        .timeout(Duration.ofSeconds(10));
+        if (auth != null) builder.header("Authorization", auth);
+        if (body != null) builder.header("Content-Type", "application/json");
+        return HttpClient.newHttpClient()
+                .send(
+                        builder.method(
+                                        method,
+                                        body == null
+                                                ? HttpRequest.BodyPublishers.noBody()
+                                                : HttpRequest.BodyPublishers.ofString(
+                                                        JsonMapper.builder()
+                                                                .build()
+                                                                .writeValueAsString(body)))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+    }
+}

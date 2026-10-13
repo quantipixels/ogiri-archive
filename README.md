@@ -1,115 +1,153 @@
-# Ogiri 0.0.1
+# Ogiri
 
-Low-setup opaque bearer sessions for **Spring Boot 4.1 / Java 17+**, with **PostgreSQL and MySQL 8+**. Keep your accounts, password encoder, identity model and authorization rules. Ogiri provides the reusable session lifecycle and Boot integration.
+Ogiri provides database-backed opaque sessions and devise_token_auth account workflows for Spring Boot. Every authenticated request checks the stored session and current account. Applications keep their account model and authorization rules.
 
-This is a new, unpublished prototype API and schema. Earlier v3/v4 credentials and database layouts are incompatible; use the application-owned migration and require existing users to sign in again.
+The baseline is Spring Boot 4.1.1, Java 17+, Jackson 3.1.7, PostgreSQL and MySQL 8.4 (InnoDB). Boot 3 and Jackson 2 are unsupported. The library builds with Java 21+; repository scripts select JDK 25 and run tests on Java 17. Check other Boot 4.x versions in your application.
 
-## Install
+The POM version is `0.0.1`; the project is an unpublished prototype. The instructions below build local artifacts and do not assume a Maven Central release. Before 1.0, API and schema changes can break compatibility; see the [changelog](CHANGELOG.md) and [security notes](SECURITY.md).
+
+## Quickstart
+
+### Build the library and independent sample
+
+From a checkout, with the tools in `mise.toml` installed:
+
+```sh
+mise exec -- bash scripts/platform/java.sh fix
+mise exec java@25.0.2 -- ./ogiri/mvnw --batch-mode --no-transfer-progress -o -DskipTests verify
+mise exec -- bash scripts/platform/java.sh sample
+```
+
+These commands need no database. The offline verification needs a populated Maven cache; on a first build, omit `-o` to download dependencies. Tests are skipped here. The sample task stages the built artifacts in `target/java/consumer-cache`, writes `target/java/consumer-settings.xml`, and packages a separate Boot-parent application. It does not install Ogiri into your shared Maven cache.
+
+### Add the BOM and starter
+
+Start with a Java 17+ Spring Boot application using `spring-boot-starter-parent` 4.1.1. Add these sections to its POM:
 
 ```xml
-<dependency>
-  <groupId>com.quantipixels.ogiri</groupId>
-  <artifactId>ogiri-spring-boot-starter</artifactId>
-  <version>0.0.1</version>
-</dependency>
+<properties>
+  <java.version>17</java.version>
+  <jackson-bom.version>3.1.7</jackson-bom.version>
+  <tomcat.version>11.0.26</tomcat.version>
+</properties>
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>com.quantipixels.ogiri</groupId>
+      <artifactId>ogiri-bom</artifactId>
+      <version>0.0.1</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+<dependencies>
+  <dependency>
+    <groupId>com.quantipixels.ogiri</groupId>
+    <artifactId>ogiri-spring-boot-starter</artifactId>
+  </dependency>
+  <dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
+    <scope>runtime</scope>
+  </dependency>
+</dependencies>
+<build>
+  <plugins>
+    <plugin>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-maven-plugin</artifactId>
+    </plugin>
+  </plugins>
+</build>
 ```
 
-Until published, run `mvn clean install` with a disposable database (see [CONTRIBUTING.md](CONTRIBUTING.md)). Add **one** database driver: `org.postgresql:postgresql` or `com.mysql:mysql-connector-j`. Your application's Spring Boot BOM manages its version. The starter includes Spring JDBC, the native OAuth2 resource-server pipeline, and Spring MVC; it does not require JPA, Redis or a Kotlin runtime.
+For MySQL, replace the driver with `com.mysql:mysql-connector-j`. The BOM aligns only Ogiri artifacts. Boot 4.1.1 ships Jackson 3.1.5 and Tomcat 11.0.24, which have known advisories; the Jackson 3.1.7 and Tomcat 11.0.26 overrides pick up the fixes. Use the generated consumer settings when resolving these unpublished artifacts from another application.
 
-Configure your ordinary `spring.datasource.*` settings, provision the schema, and set `ogiri.enabled=true`. Provide your existing `UserDetailsService`; no Ogiri user entity, session repository, authentication manager, filter or controller is needed for the default path:
+### Apply the schema and configure one realm
 
-```java
-@Bean
-UserDetailsService users(UserRepository repository) {
-    return username -> repository.securityUser(username)
-        .orElseThrow(() -> new UsernameNotFoundException("Unknown account"));
-}
+Ogiri performs no startup DDL. Through your application's migration tool, apply `META-INF/ogiri/ogiri-postgresql.sql` from the core JAR and, for a new account table, `META-INF/ogiri/users-postgresql.sql`. MySQL uses the corresponding `-mysql.sql` files. The same schemas are available in the checkout's `contracts/schema` directory. Schema application needs a database.
+
+For an existing pre-generation schema, stop all writers and apply [migrations](contracts/schema/migrations/) `001-account-generation-<engine>.sql` and `002-credential-lookup-<engine>.sql` in order. Adapt the account-table steps for every realm. Migration 001 invalidates all existing sessions; users must sign in again. Follow the MySQL script's binary-logging requirement. Deploy the matching library before restarting. Fresh schemas already contain these changes.
+
+For disposable local PostgreSQL and MySQL, this command needs Docker and starts databases:
+
+```sh
+mise run db:up
 ```
 
-`UserRepository` and `securityUser` belong to your application. Return Spring `UserDetails`. The default adapter uses the immutable username as the stable account ID in realm `users`, with no tenant. For mutable usernames, opaque IDs or tenants, supply `OgiriAccounts`: `subject(Authentication)` resolves successful login to a stable full identity; `load(Subject)` loads current status/authorities from that identity. Never resolve an ID as a mutable login accidentally.
+The Compose credentials and default ports are in `compose.yaml`; override ports with `OGIRI_PG_PORT` and `OGIRI_MYSQL_PORT`. Compose starts databases but does not apply your application's migrations.
 
-Spring's `AuthenticationConfiguration` builds password authentication from your normal services/providers; an application `AuthenticationManager` or `PasswordEncoder` wins. Without your own encoder Ogiri uses Spring's delegating password encoder, so stored hashes need their algorithm prefix (for example `{bcrypt}`). No default users or passwords are created by Ogiri.
+Put this in your application's `application.properties`, supplying the environment values for your database, SMTP server and public application URL:
 
-## Endpoints and defaults
-
-With no application `SecurityFilterChain`, the starter supplies a stateless bearer chain. Only the configured JSON sign-in is public; other routes require authentication. Add method/route authorization for your business rules.
-
-| Request | Outcome |
-| --- | --- |
-| `POST /auth/sign-in` | Authenticate JSON `username`, `password`, `client`; return session metadata and an `Authorization: Bearer ...` header |
-| `GET /auth/session` | Current session metadata |
-| `GET /auth/sessions` | List this account's live sessions |
-| `DELETE /auth/sessions/{id}` | Revoke one owned session |
-| `DELETE /auth/sign-out` | Revoke the current session |
-| `DELETE /auth/sessions` | Revoke all current account sessions |
-
-Send `Content-Type: application/json` and `X-Requested-With: Ogiri` on sign-in. That non-simple request is the only login CSRF exemption; other writes retain Spring's CSRF handling. Restrict CORS to trusted origins. Bearer credentials go in the Authorization header, never URLs, response JSON or logs. Native resource-server authentication plus duplicate-header rejection is packaged in the library, not copied from a demo.
-
-```yaml
-ogiri:
-  lifetime: 7d
-  maximum-sessions: 10
-  realm: users
-  base-path: /auth
-  endpoints-enabled: true
-  enabled: true
+```properties
+spring.datasource.url=${OGIRI_JDBC_URL}
+spring.datasource.username=${OGIRI_JDBC_USER}
+spring.datasource.password=${OGIRI_JDBC_PASSWORD}
+spring.mail.host=${OGIRI_SMTP_HOST}
+spring.mail.port=${OGIRI_SMTP_PORT}
+ogiri.public-base-url=${OGIRI_PUBLIC_BASE_URL}
+ogiri.realm=users
+ogiri.base-path=/auth
+ogiri.account.table=users
+ogiri.cookie-enabled=false
 ```
 
-`ogiri.enabled=true` is required; the other settings above show defaults. Until enabled, Ogiri registers no session endpoints, storage beans or security chain and needs no Ogiri schema. The starter still adds Spring Security, JDBC and MVC to the classpath, so [Boot's normal auto-configuration](https://docs.spring.io/spring-boot/reference/web/spring-security.html) applies: it can secure an application without an existing chain, and JDBC still needs the application's DataSource configuration. Disabling Ogiri does not disable those Spring features.
+For PostgreSQL, `OGIRI_JDBC_URL` has the form `jdbc:postgresql://host:port/database`; for MySQL, `jdbc:mysql://host:port/database`. The public URL must be an absolute HTTP(S) URL. Mail delivery can instead be supplied by an `OgiriMailer` bean. Startup requires a public URL and a mail implementation even with confirmation disabled. Configure redirect allow-lists before using confirmation, recovery or unlock links.
 
-Properties are bound and validated by Boot, with generated IDE metadata. Reaching the session cap rejects the new issuance; it does not evict another device. Expiry is fixed, not sliding. Session reads check current account status and authorities. Invalid credentials fail authentication; directory/storage outages remain failures, never fabricated anonymous success.
+This creates one realm. Without an application `SecurityFilterChain`, the starter supplies a stateless chain with public auth workflows and authentication required elsewhere. For an existing host chain, explicitly install `OgiriConfigurer.ogiri(realms)` and keep your application's authorization rules; see the [Spring architecture](docs/architecture/spring.md).
 
-## Keep an existing security chain
+From your application directory, set `OGIRI_CONSUMER_SETTINGS` to the absolute path of the checkout's generated `target/java/consumer-settings.xml`. This command needs the migrated database and runtime environment above:
 
-Ogiri backs off completely from creating a chain when **any** application chain exists. Inject the reusable `OgiriSecurity` helper into whichever chains should accept Ogiri tokens:
-
-```java
-@Bean
-SecurityFilterChain security(HttpSecurity http, OgiriSecurity ogiri) throws Exception {
-    ogiri.configure(http); // Native bearer authentication, not authorization or global CSRF disable.
-    return http
-        .authorizeHttpRequests(routes -> routes
-            .requestMatchers(ogiri.signInRequest()).permitAll()
-            .anyRequest().authenticated())
-        .csrf(csrf -> csrf.ignoringRequestMatchers(ogiri.signInRequest()))
-        .build();
-}
+```sh
+mvn -s "$OGIRI_CONSUMER_SETTINGS" spring-boot:run
 ```
 
-Retain your existing request matchers, other authentication methods, error-dispatch handling and CSRF policy. Add the sign-in permit/exemption only when you use the built-in login. The helper is reusable across multiple chains; it is not a mutable singleton configurer. `ogiri.endpoints-enabled=false` removes the controller, and `ogiri.enabled=false` disables all Ogiri auto-configuration. Business authorization remains yours. Built-in management accepts an Ogiri session, not an unrelated Basic/JWT principal.
+### Register and use header credentials
 
-If the host sets `spring.mvc.servlet.path`, the built-in endpoint and `ogiri.signInRequest()` use that servlet prefix together. Keep the same request matcher for the sign-in permit and CSRF exemption in application-owned chains.
+The following commands need the running application and database. Set `BASE_URL` to its public URL. With confirmation and cookie mode at their defaults, registration signs in the new account:
 
-## Runtime patch level
+```sh
+curl -i "$BASE_URL/auth" \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"demo@example.com","password":"test-password","password_confirmation":"test-password"}'
+```
 
-The tested Boot 4.1.1 consumer pins `tomcat.version=11.0.25` for CVE-2026-65905, CVE-2026-65182 and CVE-2026-68525. Your application's dependency management takes precedence over transitive versions: keep embedded Tomcat at 11.0.25 or a later compatible patched release. Remove this temporary override after upgrading to a Boot BOM that supplies the fixes. CI scans both resolved runtime graphs.
+For an existing account:
 
-## Database ownership
+```sh
+curl -i "$BASE_URL/auth/sign_in" \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"demo@example.com","password":"test-password"}'
+```
 
-Copy `META-INF/ogiri/schema-postgresql.sql` or `META-INF/ogiri/schema-mysql.sql` from the core JAR into an application-owned migration. Ogiri never reserves a Flyway version, runs DDL at startup, or modifies application tables. Spring Boot SQL initialization may be used explicitly in disposable development databases. Production migrations are application-owned.
+The response contains `{"data": <account>}` and credential headers. Copy `access-token`, `client` and `uid` into `ACCESS_TOKEN`, `CLIENT` and `AUTH_UID`, then validate or sign out:
 
-Both engines use the same lifecycle, admission rules and contract suite. SQL variations are limited to timestamp expressions, lock-row insertion and DDL types. Schema timestamps are UTC epoch milliseconds. Identity uses exact, case-sensitive, non-padding comparisons, including on MySQL. MySQL tables must use InnoDB.
+```sh
+curl -i "$BASE_URL/auth/validate_token" \
+  -H "access-token: $ACCESS_TOKEN" -H "client: $CLIENT" -H "uid: $AUTH_UID"
+curl -i -X DELETE "$BASE_URL/auth/sign_out" \
+  -H "access-token: $ACCESS_TOKEN" -H "client: $CLIENT" -H "uid: $AUTH_UID"
+```
 
-Two tables are required. `ogiri_sessions` holds hashes and metadata. `ogiri_subject_locks` provides stable row locks for admission and account-wide revocation. Lock rows retain one digest per identity; do not delete them while writers run, as that can split the serialization boundary. They contain no credential or direct identity text. This retained state is the explicit cost of portable session-cap enforcement, not a cache.
+The complete response `Authorization` header can also be replayed. It is Bearer base64-encoded JSON containing the DTA credentials, not a JWT. Named headers take precedence per field; query and form credentials are ignored. Defaults are a 14-day lifetime, 10 sessions per account and rotation off. When enabling `ogiri.change-headers-on-each-request`, use a DTA client that handles rotation and batch responses.
 
-Use the authoritative primary and a normal underlying pool, not a transaction-aware or replica-routing proxy. Spring transaction management and `TransactionTemplate` own commit, rollback and resource restoration. Session mutations commit in independent `REQUIRES_NEW` transactions; reads suspend an outer JDBC or JPA transaction so a stale snapshot cannot restore revoked credentials. An outer transaction that already holds a connection needs spare pool capacity. Ordinary calls work with a one-connection pool. No automatic retry pretends to resolve an ambiguous commit.
+### Cookie mode
 
-The starter reuses the application transaction manager, including Spring JPA. With the core alone, pass the manager for the supplied DataSource to `new JdbcSessions(dataSource, policy, transactionManager)`. The two-argument constructor creates a JDBC manager and is intended for JDBC-only transaction contexts. Multiple data sources or managers require an explicitly selected `JdbcSessions` bean; do not select an unrelated manager.
+Set `ogiri.cookie-enabled=true` for an HttpOnly auth cookie. It defaults to Secure, SameSite=Lax and Path=/. Use HTTPS; set `ogiri.cookie-secure=false` only for local HTTP development. Cookie mode omits the Bearer response header.
 
-Each authentication performs one indexed session read and no writes, followed by the current account lookup in the Spring adapter. Malformed credentials fail before query execution. Five-second SQL timeouts do not replace connection, socket or HTTP timeouts. Configure those through your pool/server. JDBC driver timeout units differ: PostgreSQL `socketTimeout` uses seconds; MySQL uses milliseconds. Do not share that numeric setting between drivers. Authentication expiry does not depend on cleanup.
+Before sign-in or registration that signs in, send a safe request such as `GET /auth/sign_in` and retain the `XSRF-TOKEN` cookie; that route may return 405 while setting the cookie. Send both that cookie and its value in `X-XSRF-TOKEN` on sign-in, registration that signs in, and unsafe cookie-authenticated requests. This is required even before the auth cookie exists. Complete header credentials need no Ogiri cookie CSRF on protected requests. Other host requests keep the host's CSRF policy.
 
-Schedule `JdbcSessions.cleanup(batchSize)` in your existing jobs. It locks a bounded ID page with `SKIP LOCKED` and deletes it in the same transaction; concurrent workers need no leader lease. Limit job runtime and stop when fewer than a page is returned. Core-only callers can depend on `ogiri` and construct `JdbcSessions(dataSource, policy)` without Boot.
+For browser calls across origins, configure trusted CORS origins in your application and use `OgiriConfigurer.exposeHeaders(cors)` to expose credential headers. Ogiri does not configure CORS for you.
 
-## Session freshness and caching decision
+## Extend and operate
 
-Every authentication queries the authoritative database and then loads current account status and authorities. Revocation is visible to the next authentication request after its database commit. A database outage fails authentication instead of accepting a previously observed session.
+Use `com.quantipixels.ogiri.account.AccountStore` for a custom model. Every persisted `OgiriAccount` must provide immutable `ogiri_generation` (1–36 characters), with a fresh value when an account is replaced. A missing provider value in a custom account snapshot means `email`; the default JDBC table still needs its provider column. `findByUid(uid, provider)` is provider-aware, while the one-argument form means `email`.
 
-Ogiri 0.0.1 deliberately has no session lookup cache. Caching would make revocation stale across nodes, in-flight fills, direct SQL changes and cache outages. It also adds a second security-sensitive store and provider configuration to a prototype whose primary promise is immediate revocation. Applications may cache unrelated data through Spring Cache; that does not change Ogiri authentication. Revisit session caching only with an explicit consistency contract and measured need.
+`OgiriAccount` implements `UserDetails`; use `@AuthenticationPrincipal OgiriAccount`. Supply `OgiriAuthorities` to map roles. Wire fields are separate from authorities: expose extra fields through `ogiri.account.columns`, and permit extra input fields through `ogiri.permitted-fields`. Reserved identity, generation, password, token and account-state names cannot be permitted fields.
 
-## Deliberate limits
+Additional realms use `ogiri.realms.<name>.*` and distinct mounts and account tables. Per-realm stores and mailers use `<realm>OgiriAccountStore` and `<realm>OgiriMailer`; see [bean selection and the 18-type public API](docs/architecture/spring.md). Types in `internal` packages are implementation details.
 
-No refresh/rotation protocol, cookie transport, registration, recovery orchestration or MFA is invented. Ordinary browser HttpSession applications should consider Spring Session JDBC; federated OAuth/OIDC should use an identity provider. These tools are complementary, not reimplemented here. See [SECURITY.md](SECURITY.md) for recovery coordination and token-lifetime trade-offs, and [PUBLISHING.md](PUBLISHING.md) for the opt-in Central release path.
+Spring Security events identify accounts as `realm:uid`, without credentials. Token validation emits success events too, so do not count each event as a new sign-in. Logs omit identities and secrets. Expiry is checked on every authentication; optional housekeeping is enabled with `ogiri.cleanup.interval=1h`, with a default batch size of 1000 shared across realms.
 
-The [independent example](examples/spring-app) consumes the actual installed artifacts. It exercises the opt-in default chain and existing multi-chain applications against both database engines. Production performance is not inferred from line counts; the opt-in benchmark measures a defined local storage workload.
-
-Licensed under Apache-2.0.
+See the [independent sample](examples/spring-app/README.md) for database-backed exercises, the [protocol](contracts/PROTOCOL.md) for HTTP workflows, and the [auth-design skill](skills/auth-design/SKILL.md) for application planning. Licensed under Apache-2.0.

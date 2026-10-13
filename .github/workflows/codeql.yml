@@ -5,31 +5,33 @@ on:
     branches: [ori]
   schedule:
     - cron: '17 3 * * 1'
-permissions:
-  contents: read
-  security-events: write
+permissions: {}
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   analyze:
+    name: Java CodeQL
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      actions: read # CodeQL reads its own workflow run
+      contents: read
+      security-events: write # Publish the CodeQL analysis results
+    env:
+      MISE_ENABLE_TOOLS: java,maven,python
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v5
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+          version: 2026.8.10
+          cache: false
       - uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
         with:
           languages: java-kotlin
           build-mode: manual
       - name: Compile library and standalone application for analysis
-        run: |
-          mvn --batch-mode --no-transfer-progress -Dmaven.test.skip=true -Dmaven.javadoc.skip=true install
-          mvn --batch-mode --no-transfer-progress -f examples/spring-app/pom.xml -Dmaven.test.skip=true package
+        run: mise run codeql:build
       - uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
