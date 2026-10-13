@@ -64,7 +64,7 @@ All samples implement these variables; booleans are lowercase `true`/`false`, du
 | `OGIRI_UNLOCK_STRATEGY` | `both` (`email`, `time`, `both`, `none`) |
 | `OGIRI_UNLOCK_IN_SECONDS` | `3600` |
 | `OGIRI_PARANOID` | `false` |
-| `OGIRI_REDIRECT_ALLOWLIST` | empty; comma-separated wildcard patterns |
+| `OGIRI_REDIRECT_ALLOWLIST` | `https://client.example.test/*`; comma-separated wildcard patterns. Set because an empty list differs by backend (D-O) |
 | `OGIRI_DEFAULT_CONFIRM_SUCCESS_URL` | empty |
 | `OGIRI_DEFAULT_PASSWORD_RESET_URL` | empty |
 | `OGIRI_REMOVE_TOKENS_AFTER_PASSWORD_RESET` | `false` |

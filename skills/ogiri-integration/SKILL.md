@@ -40,7 +40,7 @@ ogiri.redirect-allowlist=https://app.example.com # frontend URLs allowed in conf
 
 - Mail: startup fails without `spring.mail.*` (a `JavaMailSender`) or an `OgiriMailer` bean, even with confirmation off.
 - Cookies: `ogiri.cookie-enabled=false` by default (header credentials). If enabled, keep `ogiri.cookie-secure=true` except for local HTTP; additional cookie realms need distinct `cookie-name` and the same `cookie-path`.
-- Set `ogiri.redirect-allowlist` explicitly; see `SECURITY.md` for what an empty list means.
+- Set `ogiri.redirect-allowlist` explicitly. An empty list accepts only URLs on the origin (scheme, host, port) of `ogiri.public-base-url`, so a frontend on another origin must be listed (`SECURITY.md`, PROTOCOL D-O).
 - Consider `ogiri.remove-tokens-after-password-reset=true` and `ogiri.lockable=true`. Expose extra account fields with `ogiri.account.columns`, accept them on input with `ogiri.permitted-fields`.
 - Extra realms: `ogiri.realms.<name>.base-path`, `.account.table`, and so on; distinct mounts and tables.
 

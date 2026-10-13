@@ -26,6 +26,7 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
+            "ogiri.redirect-allowlist=https://client.example.test/*",
             "spring.datasource.url=${OGIRI_TEST_JDBC_URL}",
             "spring.datasource.username=${OGIRI_TEST_JDBC_USER}",
             "spring.datasource.password=${OGIRI_TEST_JDBC_PASSWORD}",

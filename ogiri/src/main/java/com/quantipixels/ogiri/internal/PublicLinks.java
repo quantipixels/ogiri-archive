@@ -8,9 +8,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** Link hosts come exclusively from configuration; redirects match parsed URL parts. */
+/**
+ * Link hosts come exclusively from configuration; redirects match parsed URL parts. An empty
+ * allowlist admits only the public base URL's origin (difference D-O).
+ */
 public final class PublicLinks {
     private final String base;
+    private final URI origin;
     private final List<String> allowlist;
 
     public PublicLinks(String publicBase, String mount, List<String> allowlist) {
@@ -18,6 +22,7 @@ public final class PublicLinks {
         if (uri == null || uri.getRawQuery() != null || uri.getRawFragment() != null)
             throw new IllegalArgumentException(
                     "Configure ogiri.public-base-url (or spring.application.url) as an absolute HTTP(S) URL");
+        origin = uri;
         base = publicBase.replaceAll("/+$", "") + mount;
         this.allowlist = List.copyOf(allowlist);
     }
@@ -44,7 +49,18 @@ public final class PublicLinks {
         URI candidate = absolute(value);
         return candidate != null
                 && (allowlist.isEmpty()
-                        || allowlist.stream().anyMatch(pattern -> matches(candidate, pattern)));
+                        ? sameOrigin(candidate)
+                        : allowlist.stream().anyMatch(pattern -> matches(candidate, pattern)));
+    }
+
+    private boolean sameOrigin(URI candidate) {
+        return candidate.getScheme().equals(origin.getScheme())
+                && candidate.getHost().equalsIgnoreCase(origin.getHost())
+                && port(candidate) == port(origin);
+    }
+
+    private static int port(URI uri) {
+        return uri.getPort() < 0 ? defaultPort(uri.getScheme()) : uri.getPort();
     }
 
     private static URI absolute(String value) {
@@ -75,10 +91,7 @@ public final class PublicLinks {
                 host = authority.substring(0, colon);
                 port = authority.substring(colon + 1);
             }
-            int actualPort =
-                    candidate.getPort() < 0
-                            ? defaultPort(candidate.getScheme())
-                            : candidate.getPort();
+            int actualPort = port(candidate);
             boolean portMatches =
                     port.equals("*")
                             || actualPort
