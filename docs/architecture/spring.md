@@ -67,7 +67,7 @@ Lock order is subject admission row, account row, then client rows. Persistent s
 
 Passwords use Devise-compatible plain bcrypt, cost 12 by default, truncating UTF-8 input at 72 bytes. The unknown-account dummy uses the same encoder and cost. Recovery tokens are random and stored as SHA-256 digests. Password-reset session removal is controlled by `ogiri.remove-tokens-after-password-reset` and defaults to false.
 
-Startup requires `ogiri.public-base-url` (or `spring.application.url`) and either `JavaMailSender` or `OgiriMailer`. Links use the configured public URL and mount paths, not the request Host. A nonempty redirect allow-list restricts targets; the empty default accepts any valid absolute HTTP(S) URL without userinfo. Mail is sent synchronously after commit; a non-paranoid delivery failure returns 503 while the state change remains committed. Paranoid recovery flows retain their normal response. There is no durable mail outbox.
+Startup requires `ogiri.public-base-url` (or `spring.application.url`) and either `JavaMailSender` or `OgiriMailer`. Links use the configured public URL and mount paths, not the request Host. A nonempty redirect allow-list restricts targets; the empty default accepts only the origin (scheme, host, port) of the public URL. Mail is sent synchronously after commit; a non-paranoid delivery failure returns 503 while the state change remains committed. Paranoid recovery flows retain their normal response. There is no durable mail outbox.
 
 ## Operations
 

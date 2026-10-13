@@ -443,6 +443,18 @@ def test_R5_redirect_allowlist(api: API) -> None:
     )
 
 
+@pytest.mark.profiles("default")
+def test_R5_off_origin_redirect_rejected(api: API) -> None:
+    response = api.signup(confirm_success_url="https://evil.example/done")
+    error(
+        response,
+        422,
+        "Redirect to 'https://evil.example/done' not allowed.",
+        status="error",
+        data=response.json()["data"],
+    )
+
+
 @pytest.mark.parametrize("method", ["PUT", "PATCH"])
 def test_R6_update_permitted_attributes(api: API, settings: Settings, method: str) -> None:
     response = api.request(

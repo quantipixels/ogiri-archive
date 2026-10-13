@@ -31,4 +31,16 @@ class PublicLinksTest {
                 "https://accounts.example.test/app/api/login/password/edit?token=abc",
                 links.mail("/password/edit", Map.of("token", "abc")));
     }
+
+    @Test
+    void emptyAllowlistAdmitsOnlyThePublicOrigin() {
+        var links = new PublicLinks("https://Accounts.example.test:443/base", "/auth", List.of());
+        assertTrue(links.allowed("https://accounts.example.test/reset?x=1"));
+        assertTrue(links.allowed("https://ACCOUNTS.example.test:443/other"));
+        assertFalse(links.allowed("https://evil.example/reset"));
+        assertFalse(links.allowed("http://accounts.example.test/reset"));
+        assertFalse(links.allowed("https://accounts.example.test:8443/reset"));
+        assertFalse(links.allowed("https://app.accounts.example.test/reset"));
+        assertFalse(links.allowed("https://evil.example@accounts.example.test/reset"));
+    }
 }

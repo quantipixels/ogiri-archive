@@ -12,6 +12,7 @@ Ogiri targets Spring Boot 4.x, Java 17 or later, Jackson 3, PostgreSQL and MySQL
 - Passwords use bcrypt, compatible with Devise hashes.
 - Credentials travel in the devise_token_auth headers (`access-token`, `client`, `uid`, `expiry`, `token-type`), an `Authorization: Bearer` form of the same set, or, when cookie mode is enabled, an HttpOnly cookie. They are never accepted from query strings or form fields.
 - Never log, serialise or put tokens in URLs or analytics. Ogiri's own logs and authentication events carry no tokens, passwords or client ids; events identify the account as `realm:uid`.
+- The event principal is the account uid, which is the email address for `email`-provider accounts; treat authentication event sinks as holding personal data.
 
 ## Sessions
 
@@ -35,7 +36,7 @@ Each DTA session is bound to an account generation. `ogiri_generation` must be i
 
 - Account status and authorities are loaded on each authenticated request. Re-enabling an account can restore its unrevoked, unexpired sessions.
 - Configured permitted fields can never include password, token, confirmation, lock, tracking, provider or identity columns; such configuration fails at startup.
-- Configure a redirect allow-list for confirmation, password reset and unlock links. A nonempty list restricts targets; the empty default accepts any valid absolute HTTP(S) URL without userinfo.
+- Configure a redirect allow-list for confirmation, password reset and unlock links. A nonempty list restricts targets; the empty default accepts only URLs on the origin (scheme, host, port) of `ogiri.public-base-url`, unlike DTA, which accepts any URL (PROTOCOL D-O).
 - Ogiri cannot atomically change account state it does not own. Bans, deletions and compromise recovery done outside Ogiri must also revoke the account's sessions.
 
 ## SQL, transactions and availability
