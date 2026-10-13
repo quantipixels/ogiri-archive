@@ -69,12 +69,10 @@ Passwords use Devise-compatible plain bcrypt, cost 12 by default, truncating UTF
 
 Startup requires `ogiri.public-base-url` (or `spring.application.url`) and either `JavaMailSender` or `OgiriMailer`. Links use the configured public URL and mount paths, not the request Host. A nonempty redirect allow-list restricts targets; the empty default accepts any valid absolute HTTP(S) URL without userinfo. Mail is sent synchronously after commit; a non-paranoid delivery failure returns 503 while the state change remains committed. Paranoid recovery flows retain their normal response. There is no durable mail outbox.
 
-## Operations and proof
+## Operations
 
 SLF4J logs cover failed sign-ins, committed locks/unlocks and infrastructure failures. Logs omit account identifiers and credentials. Infrastructure diagnostics retain the outer exception type and stack while removing messages, causes and suppressed exceptions.
 
 Spring Security events carry a string principal `realm:uid` with null credentials and details. Success uses the account uid; failure uses the trimmed, lowercased attempted uid. Password sign-ins publish success, bad-credentials, locked or disabled events after the transaction. Token authentication publishes success/bad-credentials through its dedicated manager. A successful token validation emits a success event, usually once per authenticated request; it is not necessarily a new sign-in. Applications can use `@EventListener`; these identities are personal data. The host's `AuthenticationEventPublisher` is used when supplied, otherwise Spring's default publisher is installed.
 
 Cleanup is opt-in: set `ogiri.cleanup.interval=1h` at the root. Each fixed-delay run deletes at most `ogiri.cleanup.batch-size` expired sessions across all realms (default 1000; range 1–10000). The first run waits one interval, and shutdown stops the dedicated scheduler. Database time and `FOR UPDATE SKIP LOCKED` let instances share cleanup work. Live sessions and subject-lock rows remain. Authentication checks expiry even when cleanup is disabled or fails.
-
-The sample uses a Boot parent, the Ogiri BOM and starter, and only declared public API in its main code. The build stages library artifacts into a worktree-local Maven cache and builds the sample outside the reactor. It does not need the Ogiri build parent as its application parent or install library artifacts into the shared Maven cache. The full gate includes database tests, the independent consumer, SBOM scanning and a release rehearsal; HTTP conformance has a separate gate. A build with `-DskipTests` proves compilation and static checks, not database or HTTP behavior.

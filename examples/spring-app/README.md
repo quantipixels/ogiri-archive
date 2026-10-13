@@ -2,49 +2,11 @@
 
 This application consumes the public Ogiri starter API. The default Devise-table AccountStore owns auth behavior; the sample supplies only role mapping, configuration and protected GET /me and GET /admin routes. Set `OGIRI_ACCOUNT_VIEW_FIELDS=role` to expose role through `ogiri.account.columns`; the default wire view remains the protocol allowlist. The principal is OgiriAccount, with ordinary Spring method security; no UserDetailsService/securityUser adapter is required.
 
-## Use Ogiri in your application
+To add Ogiri to your own application, follow the [root README](../../README.md). This page covers running this sample.
 
-Use Java 17+ and Spring Boot's `spring-boot-starter-parent` 4.1.1. Import the
-Ogiri BOM and add the starter and your database driver:
+## Build and test
 
-```xml
-<dependencyManagement><dependencies>
-  <dependency>
-    <groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-bom</artifactId>
-    <version>0.0.1</version><type>pom</type><scope>import</scope>
-  </dependency>
-</dependencies></dependencyManagement>
-<dependencies>
-  <dependency>
-    <groupId>com.quantipixels.ogiri</groupId><artifactId>ogiri-spring-boot-starter</artifactId>
-  </dependency>
-  <dependency>
-    <groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope>
-  </dependency>
-</dependencies>
-```
-
-For MySQL, use `com.mysql:mysql-connector-j` instead of the PostgreSQL driver.
-Boot manages driver, Jackson and plugin versions. This sample keeps only the
-`tomcat.version=11.0.26` dependency override: Boot 4.1.1 defaults to 11.0.24,
-which predates the security fixes recorded in the root POM. The Ogiri BOM aligns
-Ogiri artifacts; it does not import Ogiri's build plugins or dependency overrides.
-
-Configure your application's datasource and mail server, for example:
-
-```properties
-spring.datasource.url=jdbc:postgresql://localhost:5432/ogiri_test
-spring.datasource.username=ogiri
-spring.datasource.password=ogiri
-spring.mail.host=localhost
-spring.mail.port=1025
-ogiri.public-base-url=http://localhost:8080
-```
-
-Use application-owned migrations to apply `META-INF/ogiri/users-postgresql.sql`
-and `META-INF/ogiri/ogiri-postgresql.sql` from the Ogiri JAR (or the `-mysql.sql`
-variants). Ogiri performs no startup DDL. This sample also configures an `admins`
-account table; provision that table when running its additional realm.
+The sample reads its datasource, mail and `ogiri.*` settings from environment variables; see `src/main/resources/application.properties`. Its `admins` realm needs a second account table.
 
 For disposable databases from this checkout:
 
@@ -75,7 +37,7 @@ contracts/conformance/run.sh --profile default \
   -- -k 'test_S1_json_and_form_signin or test_R1_signup or test_R10_destroy_account_all_clients'
 ```
 
-The runner supplies PORT, OGIRI_DATABASE_URL, SMTP and protocol settings, creates a disposable PostgreSQL/Mailpit fixture, starts the sample, exercises it and stops its process group and containers. `run.py` converts the runner's PostgreSQL URL into JDBC configuration and launches the packaged JAR. The selected tests exercise sign-in, registration and account deletion. Broader profiles become usable as their implementation checkpoints land.
+The runner supplies PORT, OGIRI_DATABASE_URL, SMTP and protocol settings, creates a disposable PostgreSQL/Mailpit fixture, starts the sample, exercises it and stops its process group and containers. `run.py` converts the runner's PostgreSQL URL into JDBC configuration and launches the packaged JAR. The selected tests exercise sign-in, registration and account deletion.
 
 For a manually managed disposable database, apply the packaged ogiri/users schemas and the shared devise-users fixture, then set OGIRI_DATABASE_URL (PostgreSQL URL or JDBC URL), OGIRI_JDBC_USER/OGIRI_JDBC_PASSWORD when using JDBC, OGIRI_SMTP_HOST/OGIRI_SMTP_PORT and PORT. Start with `mise exec java@temurin-17.0.17+10 -- python3 examples/spring-app/run.py`. Stop that process when finished. Production schema migrations are application-owned; Ogiri performs no startup DDL.
 
